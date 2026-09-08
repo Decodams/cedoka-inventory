@@ -294,55 +294,20 @@ function MovementModal({
     setError(null);
 
     const qty = Number(quantity);
-    const signedQty = movementType === 'adjustment' || movementType === 'physical_count' ? qty : Math.abs(qty) * MOVEMENT_TYPE_SIGNS[movementType];
-
-    // Check if balance exists
-    const { data: existing } = await supabase
-      .from('inventory_balances')
-      .select('*')
-      .eq('product_id', productId)
-      .eq('branch_id', branchId)
-      .maybeSingle();
-
-    let quantityBefore = 0;
-    let newBalance = 0;
-
-    if (existing) {
-      quantityBefore = existing.current_stock;
-      newBalance = movementType === 'physical_count'
-        ? qty
-        : movementType === 'adjustment'
-          ? existing.current_stock + qty
-          : existing.current_stock + signedQty;
-
-      await supabase
-        .from('inventory_balances')
-        .update({
-          current_stock: newBalance,
-          last_count_date: movementType === 'physical_count' ? new Date().toISOString().split('T')[0] : existing.last_count_date,
-        })
-        .eq('id', existing.id);
-    } else {
-      newBalance = movementType === 'physical_count' ? qty : movementType === 'adjustment' ? qty : signedQty;
-      await supabase
-        .from('inventory_balances')
-        .insert({
-          product_id: productId,
-          branch_id: branchId,
-          opening_stock: movementType === 'opening_balance' ? qty : newBalance,
-          current_stock: newBalance,
-        });
+    if (!Number.isInteger(qty) || qty <= 0) {
+      setError('Quantity must be a whole number greater than zero');
+      setSaving(false);
+      return;
     }
 
-    const { error: txnError } = await supabase.from('inventory_transactions').insert({
-      product_id: productId,
-      branch_id: branchId,
-      movement_type: movementType,
-      quantity: Math.abs(qty),
-      quantity_before: quantityBefore,
-      quantity_after: newBalance,
-      reason: reason.trim() || null,
-      actor_id: currentUser?.id ?? null,
+    const { error: txnError } = await supabase.rpc('record_inventory_movement', {
+      p_product_id: productId,
+      p_branch_id: branchId,
+      p_movement_type: movementType,
+      p_quantity: Math.abs(qty),
+      p_reason: reason.trim() || null,
+      p_reference_type: 'manual_entry',
+      p_reference_id: null,
     });
 
     if (txnError) {

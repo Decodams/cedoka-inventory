@@ -69,7 +69,10 @@ export interface Branch {
   name: string;
   location: string;
   is_active: boolean;
+  opening_date: string | null;
+  manager_id: string | null;
   created_at: string;
+  manager?: UserProfile;
 }
 
 export interface Role {
@@ -120,6 +123,8 @@ export interface Supplier {
   is_active: boolean;
 }
 
+export type ProductType = 'simple' | 'serialized' | 'batch';
+
 export interface Product {
   id: string;
   business_id: string;
@@ -136,6 +141,9 @@ export interface Product {
   min_stock_level: number;
   reorder_level: number;
   is_active: boolean;
+  product_type: ProductType;
+  warranty_months: number | null;
+  expiry_tracking: boolean;
   category?: Category;
   supplier?: Supplier;
 }
@@ -355,6 +363,111 @@ export interface GoodsReceivedItem {
   quantity_short: number;
   notes: string;
   product?: Product;
+}
+
+export type InventoryPeriodStatus = 'open' | 'submitted' | 'approved' | 'amended';
+export type VarianceApprovalStatus = 'pending' | 'approved' | 'rejected';
+export type DailySaleStatus = 'pending' | 'completed' | 'returned' | 'refunded';
+export type ExpenseStatus = 'recorded' | 'approved' | 'rejected';
+export type ExpenseCategory =
+  | 'logistics'
+  | 'repairs'
+  | 'petty_cash'
+  | 'operational'
+  | 'utilities'
+  | 'rent'
+  | 'other';
+
+export interface InventoryPeriod {
+  id: string;
+  business_id: string;
+  branch_id: string;
+  period_start: string;
+  period_end: string;
+  status: InventoryPeriodStatus;
+  approved_by: string | null;
+  approved_at: string | null;
+  created_at: string;
+  business?: Business;
+  branch?: Branch;
+}
+
+export interface InventoryPeriodLine {
+  id: string;
+  period_id: string;
+  product_id: string;
+  opening_quantity: number;
+  received_quantity: number;
+  transfer_in_quantity: number;
+  authorized_additions_quantity: number;
+  sales_issues_quantity: number;
+  transfer_out_quantity: number;
+  damage_quantity: number;
+  returns_deductions_quantity: number;
+  adjustment_quantity: number;
+  expected_closing_quantity: number;
+  physical_closing_quantity: number | null;
+  counted_by: string | null;
+  counted_at: string | null;
+  product?: Product;
+  period?: InventoryPeriod;
+}
+
+export interface StockVariance {
+  id: string;
+  period_line_id: string;
+  branch_id: string;
+  product_id: string;
+  variance_quantity: number;
+  possible_reason: string | null;
+  explanation: string | null;
+  supporting_evidence: string | null;
+  responsible_person: string | null;
+  approval_status: VarianceApprovalStatus;
+  approved_by: string | null;
+  approved_at: string | null;
+  requires_management_attention: boolean;
+  created_by: string | null;
+  created_at: string;
+  product?: Product;
+  branch?: Branch;
+  responsible_person_user?: UserProfile;
+}
+
+export interface DailySale {
+  id: string;
+  business_id: string;
+  branch_id: string;
+  product_id: string | null;
+  salesperson_id: string | null;
+  customer_name: string | null;
+  sale_date: string;
+  quantity: number;
+  unit_price: number;
+  discount_value: number;
+  amount_paid: number;
+  status: DailySaleStatus;
+  notes: string | null;
+  created_at: string;
+  product?: Product;
+  branch?: Branch;
+  salesperson?: UserProfile;
+}
+
+export interface OperationalExpense {
+  id: string;
+  business_id: string;
+  branch_id: string;
+  expense_date: string;
+  category: string;
+  description: string;
+  amount: number;
+  status: ExpenseStatus;
+  recorded_by: string | null;
+  approved_by: string | null;
+  created_at: string;
+  branch?: Branch;
+  business?: Business;
 }
 
 export interface AuditLogEntry {

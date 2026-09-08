@@ -172,7 +172,7 @@ export function UserManagementPage() {
                           variant="ghost"
                           size="sm"
                           onClick={async () => {
-                            await supabase.rpc('deactivate_user', { p_user_id: p.id });
+                            await supabase.rpc(p.is_active ? 'deactivate_user' : 'activate_user', { p_user_id: p.id });
                             refetch();
                           }}
                         >

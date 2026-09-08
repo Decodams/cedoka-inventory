@@ -14,6 +14,9 @@ import {
   Menu,
   X,
   ChevronDown,
+  ClipboardCheck,
+  DollarSign,
+  Wallet,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
@@ -25,10 +28,13 @@ export type PageKey =
   | 'businesses'
   | 'users'
   | 'reports'
+  | 'reconciliation'
   | 'products'
   | 'inventory'
   | 'transfers'
   | 'procurement'
+  | 'sales'
+  | 'expenses'
   | 'issues'
   | 'activities'
   | 'audit';
@@ -43,10 +49,13 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, visible: () => true },
   { key: 'reports', label: 'Weekly Reports', icon: ClipboardList, visible: () => true },
+  { key: 'reconciliation', label: 'Reconciliation', icon: ClipboardCheck, visible: (r) => r !== 'sales_person' },
   { key: 'products', label: 'Products', icon: Package, visible: () => true },
   { key: 'inventory', label: 'Inventory', icon: Package, visible: (r) => r !== 'sales_person' },
   { key: 'transfers', label: 'Stock Transfers', icon: ArrowLeftRight, visible: (r) => r !== 'sales_person' },
   { key: 'procurement', label: 'Procurement', icon: ShoppingCart, visible: (r) => r !== 'sales_person' },
+  { key: 'sales', label: 'Daily Sales', icon: DollarSign, visible: () => true },
+  { key: 'expenses', label: 'Expenses', icon: Wallet, visible: (r) => r !== 'sales_person' },
   { key: 'issues', label: 'Issues & Challenges', icon: AlertTriangle, visible: () => true },
   { key: 'activities', label: 'Daily Activities', icon: CalendarDays, visible: () => true },
   { key: 'businesses', label: 'Businesses & Branches', icon: Building2, visible: (r) => r === 'super_admin' || r === 'admin' },

@@ -1,14 +1,14 @@
 import { useState, useCallback } from 'react';
-import { Building2, Plus, MapPin, Pencil, Power, ChevronRight } from 'lucide-react';
+import { Building2, Plus, MapPin, Pencil, Power, ChevronRight, Calendar } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSupabaseQuery, supabase } from '@/hooks/useSupabaseQuery';
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
-import { Input, Textarea } from '@/components/ui/Form';
+import { Input, Select, Textarea } from '@/components/ui/Form';
 import { Badge } from '@/components/ui/Badge';
 import { hasRole } from '@/lib/rbac';
-import type { Business, Branch } from '@/types/database';
+import type { Business, Branch, UserProfile } from '@/types/database';
 
 export function BusinessBranchPage() {
   const { user } = useAuth();
@@ -136,6 +136,9 @@ export function BusinessBranchPage() {
                             </p>
                             {branch.location && (
                               <p className="text-xs text-slate-400 truncate">{branch.location}</p>
+                            )}
+                            {branch.opening_date && (
+                              <p className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5"><Calendar size={10}/>Since {branch.opening_date}</p>
                             )}
                           </div>
                         </div>
@@ -306,8 +309,18 @@ function BranchFormModal({
 }) {
   const [name, setName] = useState(branch?.name ?? '');
   const [location, setLocation] = useState(branch?.location ?? '');
+  const [openingDate, setOpeningDate] = useState(branch?.opening_date ?? '');
+  const [managerId, setManagerId] = useState(branch?.manager_id ?? '');
+  const [managers, setManagers] = useState<UserProfile[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Load managers for this business
+  if (managers.length === 0) {
+    supabase.from('user_profiles').select('id, full_name, branch_id').eq('business_id', business.id).eq('is_active', true).then(({ data }) => {
+      if (data) setManagers(data as unknown as UserProfile[]);
+    });
+  }
 
   const handleSave = async () => {
     if (!name.trim()) {
@@ -320,7 +333,7 @@ function BranchFormModal({
     if (branch) {
       const { error: updateError } = await supabase
         .from('branches')
-        .update({ name: name.trim(), location: location.trim() })
+        .update({ name: name.trim(), location: location.trim(), opening_date: openingDate || null, manager_id: managerId || null })
         .eq('id', branch.id);
       if (updateError) {
         setError('Could not save changes. Please try again.');
@@ -330,7 +343,7 @@ function BranchFormModal({
     } else {
       const { error: insertError } = await supabase
         .from('branches')
-        .insert({ business_id: business.id, name: name.trim(), location: location.trim() });
+        .insert({ business_id: business.id, name: name.trim(), location: location.trim(), opening_date: openingDate || null, manager_id: managerId || null });
       if (insertError) {
         setError('Could not create the branch. Please try again.');
         setSaving(false);
@@ -357,6 +370,11 @@ function BranchFormModal({
           onChange={(e) => setLocation(e.target.value)}
           placeholder="e.g. 123 Main Street, Awka, Anambra"
         />
+        <Input label="Opening Date" type="date" value={openingDate} onChange={(e) => setOpeningDate(e.target.value)} />
+        <Select label="Branch Manager" value={managerId} onChange={(e) => setManagerId(e.target.value)}>
+          <option value="">Unassigned</option>
+          {managers.map((m) => <option key={m.id} value={m.id}>{m.full_name}</option>)}
+        </Select>
         {error && <p className="text-sm text-rose-600 px-1">{error}</p>}
         <div className="flex justify-end gap-3 pt-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>

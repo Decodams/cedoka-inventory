@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { ShoppingCart, Plus, Search, Package } from 'lucide-react';
+import { ShoppingCart, Plus, Search, Package, ClipboardCheck, Eye } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSupabaseQuery, supabase } from '@/hooks/useSupabaseQuery';
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States';
@@ -10,13 +10,15 @@ import { Badge } from '@/components/ui/Badge';
 import { formatCurrency, formatDate } from '@/lib/dateUtils';
 import { isAtLeast, hasRole } from '@/lib/rbac';
 import { PURCHASE_STATUS_STYLES, PURCHASE_STATUS_LABELS } from '@/lib/statusStyles';
-import type { PurchaseRequest, Business, Branch, Supplier, PurchaseStatus } from '@/types/database';
+import type { PurchaseRequest, Business, Branch, Supplier, PurchaseStatus, Product } from '@/types/database';
 
 export function ProcurementPage() {
   const { user } = useAuth();
   const [showModal, setShowModal] = useState(false);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
+  const [grnPurchase, setGrnPurchase] = useState<PurchaseRequest | null>(null);
+  const [viewGRNs, setViewGRNs] = useState<PurchaseRequest | null>(null);
   const canManage = isAtLeast(user, 'manager');
   const isExecutive = hasRole(user, 'super_admin');
   const isBusinessLevel = isAtLeast(user, 'admin');
@@ -134,6 +136,10 @@ export function ProcurementPage() {
                     Approve & Order
                   </Button>
                 )}
+                <Button variant="ghost" size="sm" onClick={() => setViewGRNs(p)}><Eye size={14}/>GRNs</Button>
+                {canManage && (p.status === 'ordered' || p.status === 'partially_received') && (
+                  <Button variant="ghost" size="sm" onClick={() => setGrnPurchase(p)}><ClipboardCheck size={14}/>Record GRN</Button>
+                )}
                 {canManage && p.status === 'ordered' && (
                   <Button
                     variant="ghost"
@@ -181,7 +187,121 @@ export function ProcurementPage() {
           onSaved={() => { refetch(); setShowModal(false); }}
         />
       )}
+      {grnPurchase && <GRNModal purchase={grnPurchase} currentUser={user} onClose={() => setGrnPurchase(null)} onSaved={() => { refetch(); setGrnPurchase(null); }} />}
+      {viewGRNs && <ViewGRNsModal purchase={viewGRNs} onClose={() => setViewGRNs(null)} />}
     </div>
+  );
+}
+
+function GRNModal({ purchase, currentUser, onClose, onSaved }: { purchase: PurchaseRequest; currentUser: { id: string } | null; onClose: () => void; onSaved: () => void }) {
+  const [deliveryNote, setDeliveryNote] = useState('');
+  const [isPartial, setIsPartial] = useState(false);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [items, setItems] = useState<{ product_id: string; quantity_ordered: string; quantity_received: string; quantity_damaged: string; quantity_rejected: string; quantity_short: string }[]>([{ product_id: '', quantity_ordered: '0', quantity_received: '0', quantity_damaged: '0', quantity_rejected: '0', quantity_short: '0' }]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (products.length === 0) {
+    supabase.from('products').select('*').eq('is_active', true).eq('business_id', purchase.business_id).order('name').then(({ data }) => { if (data) setProducts(data as Product[]); });
+  }
+
+  const handleSave = async () => {
+    const valid = items.filter((i) => i.product_id && Number(i.quantity_received) >= 0);
+    if (valid.length === 0) { setError('Add at least one product with received quantity'); return; }
+    setSaving(true); setError(null);
+    const grnNumber = `GRN-${Date.now().toString().slice(-8)}`;
+    const { data: grn, error: e } = await supabase.from('goods_received_notes').insert({
+      grn_number: grnNumber, purchase_request_id: purchase.id, branch_id: purchase.branch_id, supplier_id: purchase.supplier_id, received_by: currentUser?.id, delivery_note_number: deliveryNote || null, is_partial: isPartial, received_date: new Date().toISOString().split('T')[0],
+    }).select().single();
+    if (e || !grn) { setError(e?.message ?? 'Could not create GRN'); setSaving(false); return; }
+    const toInsert = valid.map((it) => ({ grn_id: grn.id, product_id: it.product_id, quantity_ordered: Number(it.quantity_ordered || 0), quantity_received: Number(it.quantity_received || 0), quantity_damaged: Number(it.quantity_damaged || 0), quantity_rejected: Number(it.quantity_rejected || 0), quantity_short: Number(it.quantity_short || 0) }));
+    await supabase.from('goods_received_items').insert(toInsert);
+    // inventory only increases by quantity_received (net of damaged/rejected handled separately). Here we use received - damaged - rejected
+    for (const it of valid) {
+      const netQty = Number(it.quantity_received) - Number(it.quantity_damaged || 0) - Number(it.quantity_rejected || 0);
+      if (netQty > 0) {
+        await supabase.rpc('record_inventory_movement', { p_product_id: it.product_id, p_branch_id: purchase.branch_id, p_movement_type: 'purchase_receipt', p_quantity: netQty, p_reason: `GRN ${grnNumber} for PO ${purchase.request_number ?? purchase.id.slice(0,8)}`, p_reference_type: 'goods_received_note', p_reference_id: grn.id });
+      }
+      if (Number(it.quantity_damaged || 0) > 0) {
+        await supabase.rpc('record_inventory_movement', { p_product_id: it.product_id, p_branch_id: purchase.branch_id, p_movement_type: 'damage', p_quantity: Number(it.quantity_damaged), p_reason: `Damaged on GRN ${grnNumber}`, p_reference_type: 'goods_received_note', p_reference_id: grn.id });
+      }
+    }
+    // update PR status
+    const hasOutstanding = valid.some((it) => Number(it.quantity_short) > 0) || isPartial;
+    await supabase.from('purchase_requests').update({ status: hasOutstanding ? 'partially_received' : 'received' }).eq('id', purchase.id);
+    setSaving(false); onSaved();
+  };
+
+  return (
+    <Modal open onClose={onClose} title={`Record Goods Received — ${purchase.request_number ?? purchase.id.slice(0, 8)}`} size="xl">
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <Input label="Delivery Note No." value={deliveryNote} onChange={(e) => setDeliveryNote(e.target.value)} placeholder="Supplier delivery note" />
+          <label className="flex items-center gap-2 text-sm text-slate-700 mt-6">
+            <input type="checkbox" checked={isPartial} onChange={(e) => setIsPartial(e.target.checked)} className="rounded border-slate-300" />
+            Partial delivery (outstanding qty remains)
+          </label>
+        </div>
+        <div className="border-t border-slate-100 pt-4">
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="text-sm font-semibold text-slate-900">Items — compare ordered vs received / damaged / rejected / short</h4>
+            <Button variant="ghost" size="sm" onClick={() => setItems([...items, { product_id: '', quantity_ordered: '0', quantity_received: '0', quantity_damaged: '0', quantity_rejected: '0', quantity_short: '0' }])}><Plus size={14}/>Add Item</Button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead><tr className="text-slate-500 text-left"><th className="px-2 py-2">Product</th><th className="px-2 py-2">Ordered</th><th className="px-2 py-2">Received</th><th className="px-2 py-2">Damaged</th><th className="px-2 py-2">Rejected</th><th className="px-2 py-2">Short</th><th></th></tr></thead>
+              <tbody>
+                {items.map((it, idx) => (
+                  <tr key={idx} className="border-t border-slate-100">
+                    <td className="px-1 py-1"><Select value={it.product_id} onChange={(e) => { const c = [...items]; c[idx].product_id = e.target.value; setItems(c); }}><option value="">Select...</option>{products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</Select></td>
+                    <td className="px-1 py-1"><Input type="number" value={it.quantity_ordered} onChange={(e) => { const c = [...items]; c[idx].quantity_ordered = e.target.value; setItems(c); }} className="w-20" /></td>
+                    <td className="px-1 py-1"><Input type="number" value={it.quantity_received} onChange={(e) => { const c = [...items]; c[idx].quantity_received = e.target.value; setItems(c); }} className="w-20" /></td>
+                    <td className="px-1 py-1"><Input type="number" value={it.quantity_damaged} onChange={(e) => { const c = [...items]; c[idx].quantity_damaged = e.target.value; setItems(c); }} className="w-20" /></td>
+                    <td className="px-1 py-1"><Input type="number" value={it.quantity_rejected} onChange={(e) => { const c = [...items]; c[idx].quantity_rejected = e.target.value; setItems(c); }} className="w-20" /></td>
+                    <td className="px-1 py-1"><Input type="number" value={it.quantity_short} onChange={(e) => { const c = [...items]; c[idx].quantity_short = e.target.value; setItems(c); }} className="w-20" /></td>
+                    <td className="px-1 py-1"><button onClick={() => setItems(items.filter((_, i) => i !== idx))} className="text-rose-400 hover:text-rose-600 text-xs">Remove</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        {error && <p className="text-sm text-rose-600">{error}</p>}
+        <div className="flex justify-end gap-3 pt-2">
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={handleSave} disabled={saving}>{saving ? 'Saving...' : 'Save GRN & Update Stock'}</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function ViewGRNsModal({ purchase, onClose }: { purchase: PurchaseRequest; onClose: () => void }) {
+  const [grns, setGrns] = useState<unknown[]>([]);
+  if (grns.length === 0) {
+    supabase.from('goods_received_notes').select(`*, items:goods_received_items(*, product:products(name, sku))`).eq('purchase_request_id', purchase.id).order('created_at', { ascending: false }).then(({ data }) => { if (data) setGrns(data); });
+  }
+  return (
+    <Modal open onClose={onClose} title={`GRNs for ${purchase.request_number ?? purchase.id.slice(0,8)}`} size="lg">
+      <div className="space-y-3">
+        {(grns as { id: string; grn_number: string; delivery_note_number: string | null; is_partial: boolean; received_date: string; items?: { product?: { name: string }; quantity_ordered: number; quantity_received: number; quantity_damaged: number; quantity_rejected: number; quantity_short: number }[] }[]).length ? (grns as { id: string; grn_number: string; delivery_note_number: string | null; is_partial: boolean; received_date: string; items?: { product?: { name: string }; quantity_ordered: number; quantity_received: number; quantity_damaged: number; quantity_rejected: number; quantity_short: number }[] }[]).map((g) => (
+          <div key={g.id} className="border border-slate-200 rounded-xl p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-slate-900">{g.grn_number} {g.is_partial && <Badge className="bg-amber-100 text-amber-700 border-amber-200 ml-2">Partial</Badge>}</p>
+              <p className="text-xs text-slate-400">{formatDate(g.received_date)}</p>
+            </div>
+            {g.delivery_note_number && <p className="text-xs text-slate-400">DN: {g.delivery_note_number}</p>}
+            <div className="mt-2 text-xs">
+              <div className="grid grid-cols-5 gap-2 font-semibold text-slate-500"><span>Product</span><span>Ordered</span><span>Received</span><span>Damaged/Rejected</span><span>Short</span></div>
+              {g.items?.map((it, i) => (
+                <div key={i} className="grid grid-cols-5 gap-2 text-slate-600 mt-1"><span>{it.product?.name ?? '—'}</span><span>{it.quantity_ordered}</span><span className="text-emerald-600 font-medium">{it.quantity_received}</span><span className="text-rose-600">{it.quantity_damaged + it.quantity_rejected}</span><span className="text-amber-600">{it.quantity_short}</span></div>
+              ))}
+            </div>
+          </div>
+        )) : <p className="text-sm text-slate-400 py-6 text-center">No goods received notes yet. Record a GRN when delivery arrives.</p>}
+        <div className="flex justify-end"><Button variant="outline" onClick={onClose}>Close</Button></div>
+      </div>
+    </Modal>
   );
 }
 

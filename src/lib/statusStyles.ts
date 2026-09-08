@@ -168,3 +168,49 @@ export const ACTIVITY_CATEGORY_ICONS: Record<ActivityCategory, string> = {
   follow_up: 'Clock',
   other: 'Circle',
 };
+
+export const VARIANCE_STATUS_STYLES: Record<string, string> = {
+  pending: 'bg-amber-100 text-amber-700 border-amber-200',
+  approved: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+  rejected: 'bg-rose-100 text-rose-700 border-rose-200',
+};
+
+export const SALE_STATUS_STYLES: Record<string, string> = {
+  pending: 'bg-amber-100 text-amber-700 border-amber-200',
+  completed: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+  returned: 'bg-orange-100 text-orange-700 border-orange-200',
+  refunded: 'bg-rose-100 text-rose-700 border-rose-200',
+};
+
+export const SALE_STATUS_LABELS: Record<string, string> = {
+  pending: 'Pending',
+  completed: 'Completed',
+  returned: 'Returned',
+  refunded: 'Refunded',
+};
+
+export const EXPENSE_STATUS_STYLES: Record<string, string> = {
+  recorded: 'bg-blue-100 text-blue-700 border-blue-200',
+  approved: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+  rejected: 'bg-rose-100 text-rose-700 border-rose-200',
+};
+
+export const EXPENSE_STATUS_LABELS: Record<string, string> = {
+  recorded: 'Recorded',
+  approved: 'Approved',
+  rejected: 'Rejected',
+};
+
+export const PERIOD_STATUS_STYLES: Record<string, string> = {
+  open: 'bg-gray-100 text-gray-600 border-gray-200',
+  submitted: 'bg-blue-100 text-blue-700 border-blue-200',
+  approved: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+  amended: 'bg-amber-100 text-amber-700 border-amber-200',
+};
+
+export const PERIOD_STATUS_LABELS: Record<string, string> = {
+  open: 'Open',
+  submitted: 'Submitted',
+  approved: 'Approved',
+  amended: 'Amended',
+};

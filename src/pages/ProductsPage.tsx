@@ -204,6 +204,10 @@ function ProductFormModal({
   const [sellingPrice, setSellingPrice] = useState(product?.selling_price?.toString() ?? '0');
   const [minStock, setMinStock] = useState(product?.min_stock_level?.toString() ?? '0');
   const [reorderLevel, setReorderLevel] = useState(product?.reorder_level?.toString() ?? '0');
+  const [productType, setProductType] = useState(product?.product_type ?? 'simple');
+  const [warrantyMonths, setWarrantyMonths] = useState(product?.warranty_months?.toString() ?? '');
+  const [expiryTracking, setExpiryTracking] = useState(product?.expiry_tracking ?? false);
+  const [isActive, setIsActive] = useState(product?.is_active ?? true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -231,6 +235,10 @@ function ProductFormModal({
       selling_price: Number(sellingPrice || 0),
       min_stock_level: Number(minStock || 0),
       reorder_level: Number(reorderLevel || 0),
+      product_type: productType,
+      warranty_months: warrantyMonths ? Number(warrantyMonths) : null,
+      expiry_tracking: expiryTracking,
+      is_active: isActive,
     };
     if (product) {
       const { error: e } = await supabase.from('products').update(data).eq('id', product.id);
@@ -271,6 +279,24 @@ function ProductFormModal({
           <Input label="Selling Price" type="number" value={sellingPrice} onChange={(e) => setSellingPrice(e.target.value)} />
           <Input label="Min Stock" type="number" value={minStock} onChange={(e) => setMinStock(e.target.value)} />
           <Input label="Reorder Level" type="number" value={reorderLevel} onChange={(e) => setReorderLevel(e.target.value)} />
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <Select label="Product Type" value={productType} onChange={(e) => setProductType(e.target.value as typeof productType)}>
+            <option value="simple">Simple</option>
+            <option value="serialized">Serialized</option>
+            <option value="batch">Batch</option>
+          </Select>
+          <Input label="Warranty (months)" type="number" value={warrantyMonths} onChange={(e) => setWarrantyMonths(e.target.value)} placeholder="Optional" />
+          <div className="flex flex-col justify-end gap-3 pb-2">
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input type="checkbox" checked={expiryTracking} onChange={(e) => setExpiryTracking(e.target.checked)} className="rounded border-slate-300" />
+              Expiry tracking
+            </label>
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="rounded border-slate-300" />
+              Active
+            </label>
+          </div>
         </div>
         {error && <p className="text-sm text-rose-600">{error}</p>}
         <div className="flex justify-end gap-3 pt-2">

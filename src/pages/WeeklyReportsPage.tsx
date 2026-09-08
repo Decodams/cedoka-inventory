@@ -257,6 +257,7 @@ function ReportFormModal({
   const [stockDamaged, setStockDamaged] = useState(report?.stock_damaged?.toString() ?? '0');
   const [closingStock, setClosingStock] = useState(report?.closing_stock?.toString() ?? '0');
   const [closingStockIsManual, setClosingStockIsManual] = useState(report?.closing_stock_is_manual ?? false);
+  const [openingDerived, setOpeningDerived] = useState(false);
 
   const [totalSalesValue, setTotalSalesValue] = useState(report?.total_sales_value?.toString() ?? '0');
   const [totalPurchaseValue, setTotalPurchaseValue] = useState(report?.total_purchase_value?.toString() ?? '0');
@@ -275,6 +276,27 @@ function ReportFormModal({
   const calculatedClosing = Number(openingStock || 0) + Number(stockReceived || 0) - Number(stockSold || 0) - Number(stockDamaged || 0);
   const expectedClosing = closingStockIsManual ? Number(closingStock || 0) : calculatedClosing;
   const variance = Number(closingStock || 0) - calculatedClosing;
+
+  // Auto-derive opening stock from prior approved period's closing stock (spec §10)
+  const deriveOpening = async (bId: string, wEnd: string) => {
+    if (report) return;
+    if (!bId || !wEnd) return;
+    const ws = toDateString(getWeekStart(new Date(wEnd)));
+    // find most recent report before this week for same branch
+    const { data } = await supabase
+      .from('weekly_reports')
+      .select('closing_stock')
+      .eq('branch_id', bId)
+      .lt('week_end_date', ws)
+      .order('week_end_date', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (data) {
+      setOpeningStock(String(data.closing_stock));
+      setOpeningDerived(true);
+      setTimeout(() => setOpeningDerived(false), 4000);
+    }
+  };
 
   const handleSave = async (submit: boolean = false) => {
     if (!businessId || !branchId) {
@@ -344,11 +366,11 @@ function ReportFormModal({
             <option value="">Select...</option>
             {availableBusinesses.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </Select>
-          <Select label="Branch" value={branchId} onChange={(e) => setBranchId(e.target.value)} disabled={!!report}>
+          <Select label="Branch" value={branchId} onChange={(e) => { setBranchId(e.target.value); if (e.target.value) deriveOpening(e.target.value, weekEndDate); }} disabled={!!report}>
             <option value="">Select...</option>
             {availableBranches.filter((b) => !businessId || b.business_id === businessId).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </Select>
-          <Input label="Week Ending (Saturday)" type="date" value={weekEndDate} onChange={(e) => setWeekEndDate(e.target.value)} disabled={!!report} />
+          <Input label="Week Ending (Saturday)" type="date" value={weekEndDate} onChange={(e) => { setWeekEndDate(e.target.value); if (branchId) deriveOpening(branchId, e.target.value); }} disabled={!!report} />
         </div>
 
         {/* Stock Position */}
@@ -357,7 +379,10 @@ function ReportFormModal({
             <Package size={16} /> Stock Position
           </h3>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <Input label="Opening Stock" type="number" value={openingStock} onChange={(e) => setOpeningStock(e.target.value)} />
+            <div>
+              <Input label="Opening Stock" type="number" value={openingStock} onChange={(e) => { setOpeningStock(e.target.value); setOpeningDerived(false); }} />
+              {openingDerived && <p className="text-[11px] text-emerald-600 mt-1">Auto-filled from prior closing stock</p>}
+            </div>
             <Input label="Stock Received" type="number" value={stockReceived} onChange={(e) => setStockReceived(e.target.value)} />
             <Input label="Stock Sold" type="number" value={stockSold} onChange={(e) => setStockSold(e.target.value)} />
             <Input label="Stock Damaged" type="number" value={stockDamaged} onChange={(e) => setStockDamaged(e.target.value)} />
@@ -472,7 +497,7 @@ function ReportDetailView({
     [report.id],
   );
 
-  const canEdit = report.status === 'draft' || hasRole(user, 'super_admin') || isAtLeast(user, 'admin');
+  const canEdit = report.status === 'draft';
   const canReview = isAtLeast(user, 'admin') && report.status === 'submitted';
   const canAmend = isAtLeast(user, 'admin') && (report.status === 'submitted' || report.status === 'reviewed');
 

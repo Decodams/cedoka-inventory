@@ -6,12 +6,15 @@ import { DashboardPage } from '@/pages/DashboardPage';
 import { BusinessBranchPage } from '@/pages/BusinessBranchPage';
 import { UserManagementPage } from '@/pages/UserManagementPage';
 import { WeeklyReportsPage } from '@/pages/WeeklyReportsPage';
+import { ReconciliationPage } from '@/pages/ReconciliationPage';
 import { ProductsPage } from '@/pages/ProductsPage';
 import { InventoryPage } from '@/pages/InventoryPage';
 import { IssuesPage } from '@/pages/IssuesPage';
 import { ActivitiesPage } from '@/pages/ActivitiesPage';
 import { TransfersPage } from '@/pages/TransfersPage';
 import { ProcurementPage } from '@/pages/ProcurementPage';
+import { SalesPage } from '@/pages/SalesPage';
+import { ExpensesPage } from '@/pages/ExpensesPage';
 import { AuditLogPage } from '@/pages/AuditLogPage';
 import { LoadingState } from '@/components/ui/States';
 
@@ -41,6 +44,8 @@ function AppContent() {
         return <UserManagementPage />;
       case 'reports':
         return <WeeklyReportsPage />;
+      case 'reconciliation':
+        return <ReconciliationPage />;
       case 'products':
         return <ProductsPage />;
       case 'inventory':
@@ -53,6 +58,10 @@ function AppContent() {
         return <TransfersPage />;
       case 'procurement':
         return <ProcurementPage />;
+      case 'sales':
+        return <SalesPage />;
+      case 'expenses':
+        return <ExpensesPage />;
       case 'audit':
         return <AuditLogPage />;
       default:

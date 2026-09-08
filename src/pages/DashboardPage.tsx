@@ -11,6 +11,7 @@ import {
   Clock,
   CheckCircle2,
   XCircle,
+  ShoppingCart,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSupabaseQuery, supabase } from '@/hooks/useSupabaseQuery';
@@ -120,6 +121,34 @@ export function DashboardPage() {
     () => issuesQuery,
     [issuesQuery],
   );
+
+  // Stock variances requiring management attention
+  const variancesQuery = useMemo(() => {
+    let q = supabase.from('stock_variances').select(`*, product:products(name), branch:branches(name)`).eq('approval_status','pending').order('created_at',{ascending:false}).limit(8);
+    if (!isExecutive && isBusinessLevel && user?.business_id) {
+      // filter by branch ids of this business - fetch branchIds then filter client side; simpler: fetch all pending and filter by branch access via RLS
+    } else if (!isBusinessLevel && user?.branch_id) q = q.eq('branch_id', user.branch_id);
+    return q;
+  }, [isExecutive, isBusinessLevel, user]);
+  const { data: variances } = useSupabaseQuery<unknown[]>(() => variancesQuery, [variancesQuery]);
+
+  // Pending procurement
+  const procurementQuery = useMemo(() => {
+    let q = supabase.from('purchase_requests').select('id,status,branch:branches(name)').in('status',['requested','ordered','partially_received']).limit(6);
+    if (!isExecutive && isBusinessLevel && user?.business_id) q = q.eq('business_id', user.business_id);
+    else if (!isBusinessLevel && user?.branch_id) q = q.eq('branch_id', user.branch_id);
+    return q;
+  }, [isExecutive, isBusinessLevel, user]);
+  const { data: pendingProcurement } = useSupabaseQuery<unknown[]>(() => procurementQuery, [procurementQuery]);
+
+  // Low stock alerts
+  const lowStockQuery = useMemo(() => {
+    let q = supabase.from('inventory_balances').select(`*, product:products(name), branch:branches(name)`).limit(6);
+    if (!isBusinessLevel && user?.branch_id) q = q.eq('branch_id', user.branch_id);
+    return q;
+  }, [isBusinessLevel, user]);
+  const { data: balances } = useSupabaseQuery<unknown[]>(() => lowStockQuery, [lowStockQuery]);
+  const lowStock = (balances as { current_stock:number; min_stock_level:number; product?:{name:string}; branch?:{name:string} }[] | null)?.filter((b)=> b.min_stock_level>0 && b.current_stock <= b.min_stock_level) ?? [];
 
   if (loadingBiz || loadingReports) {
     return <LoadingState message="Loading dashboard..." />;
@@ -327,6 +356,60 @@ export function DashboardPage() {
           )}
         </div>
       </div>
+
+      {/* Stock variances */}
+      {(variances as { id:string; variance_quantity:number; product?:{name:string}; branch?:{name:string} }[] | null)?.length ? (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <AlertTriangle size={18} className="text-amber-600" />
+            <h3 className="text-sm font-semibold text-amber-900">Stock Variances Pending Approval ({(variances as unknown[])!.length})</h3>
+          </div>
+          <div className="space-y-2">
+            {(variances as { id:string; variance_quantity:number; product?:{name:string}; branch?:{name:string}; requires_management_attention:boolean }[]).slice(0,5).map((v)=>(
+              <div key={v.id} className="flex items-center justify-between bg-white rounded-lg px-4 py-2.5 border border-amber-100">
+                <span className="text-sm font-medium text-slate-900 truncate">{v.product?.name ?? 'Product'} · {v.branch?.name ?? ''}</span>
+                <span className={`text-sm font-bold ${v.variance_quantity < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{v.variance_quantity > 0 ? '+' : ''}{v.variance_quantity}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {/* Low stock alerts */}
+      {lowStock.length > 0 && (
+        <div className="bg-rose-50 border border-rose-200 rounded-2xl p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <Package size={18} className="text-rose-600" />
+            <h3 className="text-sm font-semibold text-rose-900">Low Stock Alerts ({lowStock.length})</h3>
+          </div>
+          <div className="space-y-2">
+            {lowStock.slice(0,5).map((b, i)=>(
+              <div key={i} className="flex items-center justify-between bg-white rounded-lg px-4 py-2.5 border border-rose-100">
+                <span className="text-sm font-medium text-slate-900 truncate">{b.product?.name ?? 'Product'} · {b.branch?.name ?? ''}</span>
+                <span className="text-sm font-bold text-rose-600">{b.current_stock} / min {b.min_stock_level}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Pending procurement */}
+      {(pendingProcurement as { id:string; status:string; branch?:{name:string} }[] | null)?.length ? (
+        <div className="bg-blue-50 border border-blue-200 rounded-2xl p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <ShoppingCart size={18} className="text-blue-600" />
+            <h3 className="text-sm font-semibold text-blue-900">Pending Procurement ({(pendingProcurement as unknown[])!.length})</h3>
+          </div>
+          <div className="space-y-2">
+            {(pendingProcurement as { id:string; status:string; branch?:{name:string} }[]).slice(0,5).map((p)=>(
+              <div key={p.id} className="flex items-center justify-between bg-white rounded-lg px-4 py-2.5 border border-blue-100">
+                <span className="text-sm font-medium text-slate-900 truncate">{p.branch?.name ?? 'Branch'}</span>
+                <Badge className="bg-blue-100 text-blue-700 border-blue-200">{p.status}</Badge>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       {/* Overdue issues row */}
       {overdueIssues.length > 0 && (
