@@ -71,20 +71,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      (async () => {
-        setSession(newSession);
-        if (newSession?.user?.id) {
-          const profile = await fetchUserProfile(newSession.user.id);
-          if (mounted) setUser(profile);
-          if (mounted && roles.length === 0) {
-            const { data: rolesData } = await supabase.from('roles').select('*').order('name');
-            if (mounted && rolesData) setRoles(rolesData as Role[]);
+      setSession(newSession);
+      window.setTimeout(() => {
+        (async () => {
+          if (newSession?.user?.id) {
+            const profile = await fetchUserProfile(newSession.user.id);
+            if (mounted) setUser(profile);
+            if (mounted && roles.length === 0) {
+              const { data: rolesData } = await supabase.from('roles').select('*').order('name');
+              if (mounted && rolesData) setRoles(rolesData as Role[]);
+            }
+          } else {
+            if (mounted) setUser(null);
           }
-        } else {
-          if (mounted) setUser(null);
-        }
-        if (mounted) setLoading(false);
-      })();
+          if (mounted) setLoading(false);
+        })();
+      }, 0);
     });
 
     return () => {
@@ -96,9 +98,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = useCallback(
     async (email: string, password: string): Promise<{ error: string | null }> => {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      const normalizedEmail = email.trim().toLowerCase();
+      const { error } = await supabase.auth.signInWithPassword({
+        email: normalizedEmail,
+        password,
+      });
       if (error) {
-        return { error: error.message };
+        console.error('Supabase sign-in failed:', error);
+        return { error: error.message || 'Unable to sign in.' };
       }
       return { error: null };
     },

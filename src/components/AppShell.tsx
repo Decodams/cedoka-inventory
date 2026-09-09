@@ -219,7 +219,7 @@ export function AppShell({ currentPage, onPageChange, children }: AppShellProps)
         </header>
 
         {/* Page content */}
-        <main className="flex-1 p-4 lg:p-8 overflow-x-hidden">{children}</main>
+        <main className="flex-1 min-w-0 overflow-x-auto p-4 sm:p-6 lg:p-8">{children}</main>
       </div>
     </div>
   );

@@ -15,9 +15,14 @@ export function LoginPage() {
     setError(null);
     setLoading(true);
 
-    const { error: signInError } = await signIn(email.trim(), password);
+    const { error: signInError } = await signIn(email, password);
     if (signInError) {
-      setError('Invalid email or password. Please try again.');
+      const normalizedError = signInError.toLowerCase();
+      setError(
+        normalizedError.includes('invalid login credentials')
+          ? 'Invalid email or password. Please try again.'
+          : signInError,
+      );
       setLoading(false);
     }
   };

@@ -1,22 +1,23 @@
-import { useState } from 'react';
+import { useState, lazy, Suspense } from 'react';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { LoginPage } from '@/pages/LoginPage';
 import { AppShell, type PageKey } from '@/components/AppShell';
-import { DashboardPage } from '@/pages/DashboardPage';
-import { BusinessBranchPage } from '@/pages/BusinessBranchPage';
-import { UserManagementPage } from '@/pages/UserManagementPage';
-import { WeeklyReportsPage } from '@/pages/WeeklyReportsPage';
-import { ReconciliationPage } from '@/pages/ReconciliationPage';
-import { ProductsPage } from '@/pages/ProductsPage';
-import { InventoryPage } from '@/pages/InventoryPage';
-import { IssuesPage } from '@/pages/IssuesPage';
-import { ActivitiesPage } from '@/pages/ActivitiesPage';
-import { TransfersPage } from '@/pages/TransfersPage';
-import { ProcurementPage } from '@/pages/ProcurementPage';
-import { SalesPage } from '@/pages/SalesPage';
-import { ExpensesPage } from '@/pages/ExpensesPage';
-import { AuditLogPage } from '@/pages/AuditLogPage';
 import { LoadingState } from '@/components/ui/States';
+
+const DashboardPage = lazy(() => import('@/pages/DashboardPage').then(m => ({ default: m.DashboardPage })));
+const BusinessBranchPage = lazy(() => import('@/pages/BusinessBranchPage').then(m => ({ default: m.BusinessBranchPage })));
+const UserManagementPage = lazy(() => import('@/pages/UserManagementPage').then(m => ({ default: m.UserManagementPage })));
+const WeeklyReportsPage = lazy(() => import('@/pages/WeeklyReportsPage').then(m => ({ default: m.WeeklyReportsPage })));
+const ReconciliationPage = lazy(() => import('@/pages/ReconciliationPage').then(m => ({ default: m.ReconciliationPage })));
+const ProductsPage = lazy(() => import('@/pages/ProductsPage').then(m => ({ default: m.ProductsPage })));
+const InventoryPage = lazy(() => import('@/pages/InventoryPage').then(m => ({ default: m.InventoryPage })));
+const IssuesPage = lazy(() => import('@/pages/IssuesPage').then(m => ({ default: m.IssuesPage })));
+const ActivitiesPage = lazy(() => import('@/pages/ActivitiesPage').then(m => ({ default: m.ActivitiesPage })));
+const TransfersPage = lazy(() => import('@/pages/TransfersPage').then(m => ({ default: m.TransfersPage })));
+const ProcurementPage = lazy(() => import('@/pages/ProcurementPage').then(m => ({ default: m.ProcurementPage })));
+const SalesPage = lazy(() => import('@/pages/SalesPage').then(m => ({ default: m.SalesPage })));
+const ExpensesPage = lazy(() => import('@/pages/ExpensesPage').then(m => ({ default: m.ExpensesPage })));
+const AuditLogPage = lazy(() => import('@/pages/AuditLogPage').then(m => ({ default: m.AuditLogPage })));
 
 function AppContent() {
   const { user, loading } = useAuth();
@@ -71,7 +72,9 @@ function AppContent() {
 
   return (
     <AppShell currentPage={currentPage} onPageChange={setCurrentPage}>
-      {renderPage()}
+      <Suspense fallback={<div className="p-8 flex justify-center"><LoadingState message="Loading page..." /></div>}>
+        {renderPage()}
+      </Suspense>
     </AppShell>
   );
 }

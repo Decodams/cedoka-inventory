@@ -1,3 +1,40 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+	html {
+		-webkit-text-size-adjust: 100%;
+	}
+
+	body {
+		min-width: 320px;
+		overflow-x: hidden;
+		background: #f8fafc;
+	}
+
+	button,
+	input,
+	select,
+	textarea {
+		font: inherit;
+	}
+}
+
+@layer components {
+	.overflow-x-auto {
+		scrollbar-width: thin;
+		scrollbar-color: #cbd5e1 transparent;
+	}
+
+	.overflow-x-auto table {
+		min-width: 42rem;
+	}
+}
+
+@media (max-width: 639px) {
+	.grid-cols-2,
+	.grid-cols-5 {
+		grid-template-columns: minmax(0, 1fr);
+	}
+}
