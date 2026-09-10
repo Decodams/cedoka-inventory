@@ -63,7 +63,7 @@ export function LoginPage() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl brand-ink overflow-hidden mb-4 shadow-lg">
-            <img src={logo} alt="Cedoka" className="h-full w-full object-cover object-[50%_35%]" />
+            <img src={logo} alt="Cedoka" className="h-full w-full object-contain" />
           </div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Cedoka Global</h1>
           <p className="mt-2 text-sm text-slate-500">

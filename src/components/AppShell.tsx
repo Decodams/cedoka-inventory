@@ -156,7 +156,7 @@ export function AppShell({ currentPage, onPageChange, children }: AppShellProps)
         <div className="flex items-center justify-between px-5 py-5 border-b border-slate-100">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl brand-ink overflow-hidden flex items-center justify-center">
-              <img src={logo} alt="Cedoka" className="h-full w-full object-cover object-[50%_35%]" />
+              <img src={logo} alt="Cedoka" className="h-full w-full object-contain" />
             </div>
             <div>
               <p className="text-sm font-bold text-slate-900 leading-tight">Cedoka Global</p>

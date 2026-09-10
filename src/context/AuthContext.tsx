@@ -205,6 +205,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [session?.user?.id, signOut]);
 
+  useEffect(() => {
+    if (!session?.user?.id) return;
+
+    const lockWhenLeavingApp = () => {
+      if (document.visibilityState === 'hidden') {
+        void signOut();
+      }
+    };
+
+    document.addEventListener('visibilitychange', lockWhenLeavingApp);
+    window.addEventListener('pagehide', lockWhenLeavingApp);
+
+    return () => {
+      document.removeEventListener('visibilitychange', lockWhenLeavingApp);
+      window.removeEventListener('pagehide', lockWhenLeavingApp);
+    };
+  }, [session?.user?.id, signOut]);
+
   return (
     <AuthContext.Provider value={{ session, user, roles, loading, signIn, registerStaff, signOut, refreshUser }}>
       {children}
