@@ -15,6 +15,19 @@ export function UserManagementPage() {
   const [showModal, setShowModal] = useState(false);
   const [search, setSearch] = useState('');
   const [filterRole, setFilterRole] = useState<string>('all');
+  const [success, setSuccess] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const handleUserStatus = async (userId: string, action: 'approve' | 'reject' | 'activate' | 'deactivate') => {
+    setActionError(null);
+    const { error: statusError } = await supabase.functions.invoke('update-user-status', { body: { p_user_id: userId, p_action: action } });
+    if (statusError) {
+      setActionError(statusError.message || 'Could not update the user status.');
+      return;
+    }
+    setSuccess(`User ${action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : action === 'activate' ? 'activated' : 'deactivated'} successfully.`);
+    refetch();
+  };
 
   const { data: profiles, loading, error, refetch } = useSupabaseQuery<UserProfile[]>(
     () =>
@@ -68,10 +81,13 @@ export function UserManagementPage() {
             Create and manage user accounts. Role permissions are scoped automatically.
           </p>
         </div>
-        <Button onClick={() => setShowModal(true)}>
+        <Button onClick={() => { setSuccess(null); setShowModal(true); }} disabled={hasRole(user, 'super_admin') && (profiles?.filter((p) => p.role?.name === 'super_admin').length ?? 0) >= 2}>
           <UserPlus size={18} /> Add User
         </Button>
       </div>
+
+      {success && <p role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{success}</p>}
+      {actionError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{actionError}</p>}
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3">
@@ -175,11 +191,11 @@ export function UserManagementPage() {
                     <td className="px-5 py-3 text-right">
                       {isAtLeast(user, 'admin') && p.id !== user?.id && p.approval_status === 'pending' ? (
                         <div className="flex flex-wrap justify-end gap-2">
-                          <Button variant="primary" size="sm" onClick={async () => { await supabase.functions.invoke('update-user-status', { body: { p_user_id: p.id, p_action: 'approve' } }); refetch(); }}><Check size={14} /> Approve</Button>
-                          <Button variant="danger" size="sm" onClick={async () => { await supabase.functions.invoke('update-user-status', { body: { p_user_id: p.id, p_action: 'reject' } }); refetch(); }}><XCircle size={14} /> Reject</Button>
+                          <Button variant="primary" size="sm" onClick={() => handleUserStatus(p.id, 'approve')}><Check size={14} /> Approve</Button>
+                          <Button variant="danger" size="sm" onClick={() => handleUserStatus(p.id, 'reject')}><XCircle size={14} /> Reject</Button>
                         </div>
                       ) : isAtLeast(user, 'admin') && p.id !== user?.id ? (
-                        <Button variant="ghost" size="sm" onClick={async () => { await supabase.functions.invoke('update-user-status', { body: { p_user_id: p.id, p_action: p.is_active ? 'deactivate' : 'activate' } }); refetch(); }}><Power size={14} /> {p.is_active ? 'Deactivate' : 'Activate'}</Button>
+                        <Button variant="ghost" size="sm" onClick={() => handleUserStatus(p.id, p.is_active ? 'deactivate' : 'activate')}><Power size={14} /> {p.is_active ? 'Deactivate' : 'Activate'}</Button>
                       ) : null}
                     </td>
                   </tr>
@@ -203,10 +219,12 @@ export function UserManagementPage() {
           businesses={businesses ?? []}
           branches={branches ?? []}
           currentUser={user}
+          superAdminCount={profiles?.filter((p) => p.role?.name === 'super_admin').length ?? 0}
           onClose={() => setShowModal(false)}
           onSaved={() => {
             refetch();
             setShowModal(false);
+            setSuccess('User account created successfully.');
           }}
         />
       )}
@@ -219,6 +237,7 @@ function CreateUserModal({
   businesses,
   branches,
   currentUser,
+  superAdminCount,
   onClose,
   onSaved,
 }: {
@@ -226,6 +245,7 @@ function CreateUserModal({
   businesses: Business[];
   branches: Branch[];
   currentUser: UserProfile | null;
+  superAdminCount: number;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -238,9 +258,10 @@ function CreateUserModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const availableRoles = roles.filter((r) =>
-    canCreateRole(currentUser, r.name as RoleName),
-  );
+  const availableRoles = roles.filter((r) => {
+    if (hasRole(currentUser, 'super_admin')) return r.name === 'super_admin';
+    return canCreateRole(currentUser, r.name as RoleName);
+  });
 
   const availableBusinesses = useMemo(() => {
     if (hasRole(currentUser, 'super_admin')) return businesses;
@@ -275,6 +296,11 @@ function CreateUserModal({
     const selectedRoleName = roles.find((r) => r.id === roleId)?.name;
     if (!selectedRoleName) {
       setError('Invalid role selected');
+      setSaving(false);
+      return;
+    }
+    if (hasRole(currentUser, 'super_admin') && selectedRoleName !== 'super_admin') {
+      setError('Super Admin can only create another Super Admin account.');
       setSaving(false);
       return;
     }
@@ -333,7 +359,7 @@ function CreateUserModal({
             setBranchId('');
           }}
         >
-          <option value="">Select a role...</option>
+          <option value="">{hasRole(currentUser, 'super_admin') && superAdminCount >= 2 ? 'Super Admin limit reached' : 'Select a role...'}</option>
           {availableRoles.map((r) => (
             <option key={r.id} value={r.id}>
               {r.display_name}

@@ -163,7 +163,13 @@ function NewPeriodModal({ branches, currentUser, onClose, onSaved }: { branches:
       opening_quantity: priorLines[p.id] ?? balanceMap[p.id] ?? 0,
     }));
     if (linesToInsert.length) {
-      await supabase.from('inventory_period_lines').insert(linesToInsert);
+      const { error: linesError } = await supabase.from('inventory_period_lines').insert(linesToInsert);
+      if (linesError) {
+        await supabase.from('inventory_periods').delete().eq('id', period.id);
+        setError(`Period created, but product lines could not be added: ${linesError.message}`);
+        setSaving(false);
+        return;
+      }
     }
     setSaving(false); onSaved();
   };
@@ -193,6 +199,7 @@ function PeriodDetailView({ period, onBack, onRefresh }: { period: InventoryPeri
   const [search, setSearch] = useState('');
   const [showVarianceModal, setShowVarianceModal] = useState<InventoryPeriodLine | null>(null);
   const [showAddProduct, setShowAddProduct] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const canManage = isAtLeast(user, 'manager');
   const canApprove = isAtLeast(user, 'admin');
 
@@ -218,17 +225,21 @@ function PeriodDetailView({ period, onBack, onRefresh }: { period: InventoryPeri
   const totalVarianceQty = variances?.reduce((s,v)=> s+Math.abs(v.variance_quantity),0) ?? 0;
 
   const handleStatusChange = async (status: string) => {
-    await supabase.from('inventory_periods').update({ status, approved_by: status==='approved'?user?.id:null, approved_at: status==='approved'?new Date().toISOString():null }).eq('id', period.id);
+    setActionError(null);
+    const { error: updateError } = await supabase.from('inventory_periods').update({ status, approved_by: status==='approved'?user?.id:null, approved_at: status==='approved'?new Date().toISOString():null }).eq('id', period.id);
+    if (updateError) { setActionError(`Could not update period: ${updateError.message}`); return; }
     onRefresh(); onBack();
   };
 
   const handleLineUpdate = async (line: InventoryPeriodLine, patch: Partial<InventoryPeriodLine>) => {
-    await supabase.from('inventory_period_lines').update(patch).eq('id', line.id);
+    const { error: updateError } = await supabase.from('inventory_period_lines').update(patch).eq('id', line.id);
+    if (updateError) { setActionError(`Could not update product line: ${updateError.message}`); return; }
     refetch();
   };
 
   const handleCount = async (line: InventoryPeriodLine, val: number) => {
-    await supabase.from('inventory_period_lines').update({ physical_closing_quantity: val, counted_by: user?.id, counted_at: new Date().toISOString() }).eq('id', line.id);
+    const { error: countError } = await supabase.from('inventory_period_lines').update({ physical_closing_quantity: val, counted_by: user?.id, counted_at: new Date().toISOString() }).eq('id', line.id);
+    if (countError) { setActionError(`Could not save physical count: ${countError.message}`); return; }
     // auto-create variance if mismatch
     const expected = line.expected_closing_quantity;
     const diff = val - expected;
@@ -253,6 +264,7 @@ function PeriodDetailView({ period, onBack, onRefresh }: { period: InventoryPeri
   return (
     <div className="space-y-6">
       <button onClick={onBack} className="text-sm text-slate-500 hover:text-slate-700">← Back to Reconciliation</button>
+      {actionError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{actionError}</p>}
 
       <div className="bg-white rounded-2xl border border-slate-200 p-6">
         <div className="flex items-start justify-between">

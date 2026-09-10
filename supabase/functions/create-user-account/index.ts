@@ -26,6 +26,14 @@ Deno.serve(async (request) => {
   const actorRole = (actor?.role as { name?: string } | null)?.name;
   if (!actor?.is_active) return reply({ error: 'Not authorized' }, 403);
   if (actorRole !== 'super_admin' && !(actorRole === 'admin' && ['manager', 'sales_person'].includes(body.p_role_name)) && !(actorRole === 'manager' && body.p_role_name === 'sales_person')) return reply({ error: 'Not authorized to create this role' }, 403);
+  if (actorRole === 'super_admin') {
+    if (body.p_role_name !== 'super_admin') return reply({ error: 'Super Admin can only create another Super Admin account' }, 403);
+    const { data: superAdminRole } = await admin.from('roles').select('id').eq('name', 'super_admin').maybeSingle();
+    if (!superAdminRole) return reply({ error: 'Super Admin role is not configured' }, 500);
+    const { count: superAdminCount, error: countError } = await admin.from('user_profiles').select('id', { count: 'exact', head: true }).eq('role_id', superAdminRole.id);
+    if (countError) return reply({ error: countError.message }, 500);
+    if ((superAdminCount ?? 0) >= 2) return reply({ error: 'Only two Super Admin accounts are allowed' }, 409);
+  }
   const businessId = actorRole === 'manager' ? actor.business_id : body.p_business_id ?? null;
   const branchId = actorRole === 'manager' ? actor.branch_id : body.p_branch_id ?? null;
   if (actorRole === 'admin' && businessId !== actor.business_id) return reply({ error: 'Admins can only create users in their own business' }, 403);

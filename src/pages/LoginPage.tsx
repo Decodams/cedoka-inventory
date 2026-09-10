@@ -1,6 +1,7 @@
 import { useRef, useState, type FormEvent } from 'react';
-import { Building2, Lock, Mail, Eye, EyeOff, Loader2, UserPlus } from 'lucide-react';
+import { Lock, Mail, Eye, EyeOff, Loader2, UserPlus } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import logo from '@/logo.jpeg';
 
 export function LoginPage() {
   const { signIn, registerStaff } = useAuth();
@@ -61,8 +62,8 @@ export function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-slate-900 text-white mb-4 shadow-lg">
-            <Building2 size={32} />
+          <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl brand-ink overflow-hidden mb-4 shadow-lg">
+            <img src={logo} alt="Cedoka" className="h-full w-full object-cover object-[50%_35%]" />
           </div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Cedoka Global</h1>
           <p className="mt-2 text-sm text-slate-500">

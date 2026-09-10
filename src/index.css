@@ -2,6 +2,17 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+	--cedoka-ink: #101c27;
+	--cedoka-ink-deep: #0a121a;
+	--cedoka-gold: #d8bd78;
+	--cedoka-gold-soft: #f4ead0;
+}
+
+.brand-ink { background-color: var(--cedoka-ink); }
+.brand-gold { color: var(--cedoka-gold); }
+.brand-gold-soft { background-color: var(--cedoka-gold-soft); }
+
 @layer base {
   html {
     scroll-behavior: smooth;
