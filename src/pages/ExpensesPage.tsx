@@ -28,12 +28,13 @@ export function ExpensesPage() {
   const { data: branches } = useSupabaseQuery<Branch[]>(
     () => supabase.from('branches').select('*').eq('is_active', true).order('name'),
     [],
+    { cacheKey: `ref:branches:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
   );
 
   const expensesQuery = useMemo(() => {
     let q = supabase
       .from('operational_expenses')
-      .select(`*, branch:branches(*), business:businesses(*)`)
+      .select(`*, branch:branches(id,name), business:businesses(id,name)`)
       .order('expense_date', { ascending: false })
       .order('created_at', { ascending: false })
       .limit(100);

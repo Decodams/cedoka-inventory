@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { DollarSign, Plus, Search, Receipt } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSupabaseQuery, supabase } from '@/hooks/useSupabaseQuery';
@@ -26,12 +26,13 @@ export function SalesPage() {
   const { data: branches } = useSupabaseQuery<Branch[]>(
     () => supabase.from('branches').select('*').eq('is_active', true).order('name'),
     [],
+    { cacheKey: `ref:branches:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
   );
 
   const salesQuery = useMemo(() => {
     let q = supabase
       .from('daily_sales')
-      .select(`*, product:products(*), branch:branches(*), salesperson:user_profiles!salesperson_id(full_name)`)
+      .select(`*, product:products(id,name), branch:branches(id,name), salesperson:user_profiles!salesperson_id(full_name)`)
       .order('sale_date', { ascending: false })
       .order('created_at', { ascending: false })
       .limit(100);
@@ -42,7 +43,11 @@ export function SalesPage() {
     return q;
   }, [isExecutive, isBusinessLevel, user, filterBranch, filterStatus]);
 
-  const { data: sales, loading, error, refetch } = useSupabaseQuery<DailySale[]>(() => salesQuery, [salesQuery]);
+  const { data: sales, loading, error, refetch } = useSupabaseQuery<DailySale[]>(
+    () => salesQuery,
+    [salesQuery],
+    { cacheKey: `sales:${user?.id ?? 'anon'}:${user?.business_id ?? '-'}:${user?.branch_id ?? '-'}:${filterBranch}:${filterStatus}` },
+  );
 
   const filtered = useMemo(() => {
     if (!sales) return [];
@@ -162,12 +167,20 @@ function SaleModal({ sale, branches, currentUser, onClose, onSaved }: { sale: Da
 
   const selectedBranch = branches.find(b=>b.id===branchId);
 
-  // load products for branch business
+  // load products for branch business (effect, not render, to avoid duplicate requests)
+  useEffect(() => {
+    if (!selectedBranch || products.length > 0) return;
+    let cancelled = false;
+    supabase.from('products').select('id,name,sku').eq('is_active', true).eq('business_id', selectedBranch.business_id).order('name').then(({ data }) => {
+      if (!cancelled && data) setProducts(data as Product[]);
+    });
+    return () => { cancelled = true; };
+  }, [selectedBranch, products.length]);
+
   const loadProducts = async (bizId: string) => {
-    const { data } = await supabase.from('products').select('*').eq('is_active', true).eq('business_id', bizId).order('name');
+    const { data } = await supabase.from('products').select('id,name,sku').eq('is_active', true).eq('business_id', bizId).order('name');
     setProducts((data as Product[]) ?? []);
   };
-  if (selectedBranch && products.length===0) { loadProducts(selectedBranch.business_id); }
 
   const handleBranchChange = (bid: string) => {
     setBranchId(bid); setProductId('');

@@ -26,16 +26,19 @@ export function BusinessBranchPage() {
   const { data: businesses, loading, error, refetch } = useSupabaseQuery<Business[]>(
     () => supabase.from('businesses').select('*').order('name'),
     [],
+    { cacheKey: `org:businesses:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
   );
 
   const { data: branches } = useSupabaseQuery<Branch[]>(
     () => supabase.from('branches').select('*').order('name'),
     [],
+    { cacheKey: `org:branches:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
   );
 
   const { data: categories } = useSupabaseQuery<Category[]>(
     () => supabase.from('categories').select('*').eq('is_active', true).order('name'),
     [],
+    { cacheKey: `ref:categories:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
   );
 
   const { data: staff } = useSupabaseQuery<StaffWithRole[]>(
@@ -46,6 +49,7 @@ export function BusinessBranchPage() {
         .eq('is_active', true)
         .order('full_name') as unknown as Promise<{ data: StaffWithRole[] | null; error: { message: string } | null }>,
     [],
+    { cacheKey: `org:staff:${user?.id ?? 'anon'}` },
   );
 
   const branchesForBusiness = (bizId: string) => branches?.filter((b) => b.business_id === bizId) ?? [];

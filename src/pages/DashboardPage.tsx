@@ -40,7 +40,10 @@ export function DashboardPage() {
     if (!isSuperAdmin) return supabase.from('businesses').select('*').eq('is_active', true).order('name').limit(1);
     return supabase.from('businesses').select('*').eq('is_active', true).order('name');
   }, [isSuperAdmin]);
-  const { data: businesses, loading: loadingBiz } = useSupabaseQuery<Business[]>(() => businessesQuery, []);
+  const { data: businesses, loading: loadingBiz } = useSupabaseQuery<Business[]>(() => businessesQuery, [], {
+    cacheKey: `dash:businesses:${roleName}:${user?.id ?? 'anon'}`,
+    ttlMs: 60_000,
+  });
 
   const branchesQuery = useMemo(() => {
     if (!isSuperAdmin && !isAdmin && user?.branch_id) {
@@ -51,43 +54,59 @@ export function DashboardPage() {
     }
     return supabase.from('branches').select('*').eq('is_active', true).order('name');
   }, [isSuperAdmin, isAdmin, user]);
-  const { data: branches } = useSupabaseQuery<Branch[]>(() => branchesQuery, []);
+  const { data: branches } = useSupabaseQuery<Branch[]>(() => branchesQuery, [], {
+    cacheKey: `dash:branches:${roleName}:${user?.business_id ?? '-'}:${user?.branch_id ?? '-'}`,
+    ttlMs: 60_000,
+  });
 
   const reportsQuery = useMemo(() => {
-    let q = supabase.from('weekly_reports').select(`*, business:businesses(*), branch:branches(*)`).order('created_at', { ascending: false });
+    let q = supabase.from('weekly_reports').select(`*, business:businesses(id,name), branch:branches(id,name)`).order('created_at', { ascending: false });
     if (isSuperAdmin) { /* all */ }
     else if (isAdmin && user?.business_id) q = q.eq('business_id', user.business_id);
     else if (user?.branch_id) q = q.eq('branch_id', user.branch_id);
     else if (user?.id) q = q.eq('submitted_by', user.id);
     return q.limit(20);
   }, [isSuperAdmin, isAdmin, user]);
-  const { data: weeklyReports } = useSupabaseQuery<WeeklyReport[]>(() => reportsQuery, [reportsQuery]);
+  const { data: weeklyReports } = useSupabaseQuery<WeeklyReport[]>(() => reportsQuery, [reportsQuery], {
+    cacheKey: `dash:reports:${roleName}:${user?.business_id ?? '-'}:${user?.branch_id ?? '-'}:${user?.id ?? '-'}`,
+  });
 
   const issuesQuery = useMemo(() => {
-    let q = supabase.from('issues').select(`*, branch:branches(name), business:businesses(name)`).neq('status', 'closed').order('created_at', { ascending: false }).limit(10);
+    let q = supabase.from('issues').select(`*, branch:branches(id,name), business:businesses(id,name)`).neq('status', 'closed').order('created_at', { ascending: false }).limit(10);
     if (!isSuperAdmin && isAdmin && user?.business_id) q = q.eq('business_id', user.business_id);
     else if (!isAdmin && user?.branch_id) q = q.eq('branch_id', user.branch_id);
     return q;
   }, [isSuperAdmin, isAdmin, user]);
-  const { data: issues } = useSupabaseQuery<Issue[]>(() => issuesQuery, [issuesQuery]);
+  const { data: issues } = useSupabaseQuery<Issue[]>(() => issuesQuery, [issuesQuery], {
+    cacheKey: `dash:issues:${roleName}:${user?.business_id ?? '-'}:${user?.branch_id ?? '-'}`,
+  });
 
+  const salesActive = isSalesPerson && !!user?.branch_id;
   const salesQuery = useMemo(() => {
-    if (!isSalesPerson || !user?.branch_id) return supabase.from('daily_sales').select('*').eq('id', '00000000-0000-0000-0000-000000000000').limit(0);
-    return supabase.from('daily_sales').select(`*, product:products(*), branch:branches(name)`).eq('branch_id', user.branch_id).eq('salesperson_id', user.id).order('sale_date', { ascending: false }).limit(100);
-  }, [isSalesPerson, user]);
-  const { data: sales } = useSupabaseQuery<DailySale[]>(() => salesQuery, [salesQuery]);
+    if (!salesActive || !user?.branch_id) return null;
+    return supabase.from('daily_sales').select(`*, product:products(id,name), branch:branches(id,name)`).eq('branch_id', user.branch_id).eq('salesperson_id', user.id).order('sale_date', { ascending: false }).limit(100);
+  }, [salesActive, user]);
+  const { data: sales } = useSupabaseQuery<DailySale[]>(salesQuery ? () => salesQuery : null, [salesQuery], {
+    cacheKey: salesActive ? `dash:mysales:${user?.id}` : undefined,
+  });
 
+  const productsActive = isSalesPerson && !!user?.business_id;
   const productsQuery = useMemo(() => {
-    if (!isSalesPerson || !user?.business_id) return supabase.from('products').select('*').eq('id', '00000000-0000-0000-0000-000000000000').limit(0);
-    return supabase.from('products').select('*').eq('business_id', user.business_id).eq('is_active', true).order('name');
-  }, [isSalesPerson, user]);
-  const { data: products } = useSupabaseQuery<Product[]>(() => productsQuery, [productsQuery]);
+    if (!productsActive || !user?.business_id) return null;
+    return supabase.from('products').select('id,name').eq('business_id', user.business_id).eq('is_active', true).order('name');
+  }, [productsActive, user]);
+  const { data: products } = useSupabaseQuery<Product[]>(productsQuery ? () => productsQuery : null, [productsQuery], {
+    cacheKey: productsActive ? `ref:sp-products:${user?.business_id}` : undefined,
+    ttlMs: 60_000,
+  });
 
   const usersQuery = useMemo(() => {
     if (!isSuperAdmin) return supabase.from('user_profiles').select('*').eq('id', user?.id ?? '00000000-0000-0000-0000-000000000000');
-    return supabase.from('user_profiles').select('*, role:roles(name)').eq('is_active', true).order('created_at', { ascending: false }).limit(20);
+    return supabase.from('user_profiles').select('*, role:roles(id,name,display_name)').eq('is_active', true).order('created_at', { ascending: false }).limit(20);
   }, [isSuperAdmin, user]);
-  const { data: users } = useSupabaseQuery<UserProfile[]>(() => usersQuery, [usersQuery]);
+  const { data: users } = useSupabaseQuery<UserProfile[]>(() => usersQuery, [usersQuery], {
+    cacheKey: `dash:users:${roleName}:${user?.id ?? '-'}`,
+  });
 
   const mySales = useMemo(() => sales ?? [], [sales]);
   const myTotalSales = mySales.filter((s) => s.status === 'completed').reduce((sum, s) => sum + Number(s.unit_price) * s.quantity - Number(s.discount_value), 0);

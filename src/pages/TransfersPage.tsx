@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { ArrowLeftRight, Plus, Search, Package, ArrowRight, Trash2, Eye } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSupabaseQuery, supabase } from '@/hooks/useSupabaseQuery';
@@ -23,12 +23,13 @@ export function TransfersPage() {
   const { data: branches } = useSupabaseQuery<Branch[]>(
     () => supabase.from('branches').select('*').eq('is_active', true).order('name'),
     [],
+    { cacheKey: `ref:branches:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
   );
 
   const transfersQuery = useMemo(() => {
     let q = supabase
       .from('stock_transfers')
-      .select(`*, from_branch:branches!from_branch_id(*), to_branch:branches!to_branch_id(*)`)
+      .select(`*, from_branch:branches!from_branch_id(id,name), to_branch:branches!to_branch_id(id,name)`)
       .order('created_at', { ascending: false })
       .limit(50);
     if (filterStatus !== 'all') q = q.eq('status', filterStatus as TransferStatus);
@@ -194,16 +195,26 @@ function TransferModal({
   const selectedFromBranch = branches.find((b) => b.id === fromBranchId);
 
   const loadProducts = async (bizId: string) => {
-    const { data } = await supabase.from('products').select('*').eq('is_active', true).eq('business_id', bizId).order('name');
+    const { data } = await supabase.from('products').select('id,name,sku').eq('is_active', true).eq('business_id', bizId).order('name');
     setProducts((data as Product[]) ?? []);
   };
+
+  // load products once per source branch (effect, not render, to avoid duplicate requests)
+  useEffect(() => {
+    if (!selectedFromBranch || products.length > 0) return;
+    let cancelled = false;
+    supabase.from('products').select('id,name,sku').eq('is_active', true).eq('business_id', selectedFromBranch.business_id).order('name').then(({ data }) => {
+      if (!cancelled && data) setProducts(data as Product[]);
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedFromBranch?.business_id]);
 
   const handleFromChange = (bid: string) => {
     setFromBranchId(bid);
     const br = branches.find((b) => b.id === bid);
     if (br) loadProducts(br.business_id);
   };
-  if (selectedFromBranch && products.length === 0) loadProducts(selectedFromBranch.business_id);
 
   const addItem = () => setItems([...items, { product_id: '', quantity: '1' }]);
   const removeItem = (idx: number) => setItems(items.filter((_, i) => i !== idx));
@@ -294,10 +305,14 @@ function TransferModal({
 
 function TransferDetailModal({ transfer, onClose }: { transfer: StockTransfer; onClose: () => void }) {
   const [items, setItems] = useState<(typeof transfer & { product?: Product })[]>([]);
-  // load items
-  if (items.length === 0) {
-    supabase.from('stock_transfer_items').select(`*, product:products(*)`).eq('transfer_id', transfer.id).then(({ data }) => { if (data) setItems(data as unknown as typeof items); });
-  }
+  // load items once (effect, not render, to avoid duplicate requests)
+  useEffect(() => {
+    let cancelled = false;
+    supabase.from('stock_transfer_items').select(`*, product:products(id,name)`).eq('transfer_id', transfer.id).then(({ data }) => {
+      if (!cancelled && data) setItems(data as unknown as typeof items);
+    });
+    return () => { cancelled = true; };
+  }, [transfer.id]);
   return (
     <Modal open onClose={onClose} title={`Transfer ${transfer.transfer_number ?? transfer.id.slice(0,8)}`} size="lg">
       <div className="space-y-4">

@@ -24,22 +24,25 @@ export function ProductsPage() {
   const { data: businesses } = useSupabaseQuery<Business[]>(
     () => supabase.from('businesses').select('*').eq('is_active', true).order('name'),
     [],
+    { cacheKey: `ref:businesses:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
   );
 
   const { data: categories } = useSupabaseQuery<Category[]>(
     () => supabase.from('categories').select('*').eq('is_active', true).order('name'),
     [],
+    { cacheKey: `ref:categories:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
   );
 
   const { data: suppliers } = useSupabaseQuery<Supplier[]>(
     () => supabase.from('suppliers').select('*').eq('is_active', true).order('name'),
     [],
+    { cacheKey: `ref:suppliers:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
   );
 
   const productsQuery = useMemo(() => {
     let q = supabase
       .from('products')
-      .select(`*, category:categories(*), supplier:suppliers(*)`)
+      .select(`*, category:categories(id,name), supplier:suppliers(id,name)`)
       .order('name');
     if (!isExecutive && user?.business_id) {
       q = q.eq('business_id', user.business_id);
@@ -51,6 +54,7 @@ export function ProductsPage() {
   const { data: products, loading, error, refetch } = useSupabaseQuery<Product[]>(
     () => productsQuery,
     [productsQuery],
+    { cacheKey: `products:${user?.id ?? 'anon'}:${user?.business_id ?? '-'}:${filterBusiness}` },
   );
 
   const filtered = useMemo(() => {

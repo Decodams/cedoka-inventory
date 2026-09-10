@@ -20,19 +20,22 @@ export function UserManagementPage() {
     () =>
       supabase
         .from('user_profiles')
-        .select(`*, role:roles(*), business:businesses!user_profiles_business_id_fkey(*), branch:branches!user_profiles_branch_id_fkey(*)`)
+        .select(`*, role:roles(id,name,display_name), business:businesses!user_profiles_business_id_fkey(id,name), branch:branches!user_profiles_branch_id_fkey(id,name)`)
         .order('created_at', { ascending: false }),
     [],
+    { cacheKey: `users:list:${user?.id ?? 'anon'}` },
   );
 
   const { data: businesses } = useSupabaseQuery<Business[]>(
     () => supabase.from('businesses').select('*').eq('is_active', true).order('name'),
     [],
+    { cacheKey: `ref:businesses:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
   );
 
   const { data: branches } = useSupabaseQuery<Branch[]>(
     () => supabase.from('branches').select('*').eq('is_active', true).order('name'),
     [],
+    { cacheKey: `ref:branches:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
   );
 
   const filteredProfiles = useMemo(() => {

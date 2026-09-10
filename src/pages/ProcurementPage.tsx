@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { ShoppingCart, Plus, Search, ClipboardCheck, Eye } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSupabaseQuery, supabase } from '@/hooks/useSupabaseQuery';
@@ -26,22 +26,25 @@ export function ProcurementPage() {
   const { data: businesses } = useSupabaseQuery<Business[]>(
     () => supabase.from('businesses').select('*').eq('is_active', true).order('name'),
     [],
+    { cacheKey: `ref:businesses:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
   );
 
   const { data: branches } = useSupabaseQuery<Branch[]>(
     () => supabase.from('branches').select('*').eq('is_active', true).order('name'),
     [],
+    { cacheKey: `ref:branches:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
   );
 
   const { data: suppliers } = useSupabaseQuery<Supplier[]>(
     () => supabase.from('suppliers').select('*').eq('is_active', true).order('name'),
     [],
+    { cacheKey: `ref:suppliers:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
   );
 
   const purchaseQuery = useMemo(() => {
     let q = supabase
       .from('purchase_requests')
-      .select(`*, business:businesses(*), branch:branches(*), supplier:suppliers(*)`)
+      .select(`*, business:businesses(id,name), branch:branches(id,name), supplier:suppliers(id,name)`)
       .order('created_at', { ascending: false })
       .limit(60);
     if (!isExecutive && isBusinessLevel && user?.business_id) {
@@ -201,9 +204,16 @@ function GRNModal({ purchase, currentUser, onClose, onSaved }: { purchase: Purch
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (products.length === 0) {
-    supabase.from('products').select('*').eq('is_active', true).eq('business_id', purchase.business_id).order('name').then(({ data }) => { if (data) setProducts(data as Product[]); });
-  }
+  // load products for the purchase's business (effect, not render, to avoid duplicate requests)
+  useEffect(() => {
+    if (products.length > 0) return;
+    let cancelled = false;
+    supabase.from('products').select('id,name').eq('is_active', true).eq('business_id', purchase.business_id).order('name').then(({ data }) => {
+      if (!cancelled && data) setProducts(data as Product[]);
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [purchase.business_id]);
 
   const handleSave = async () => {
     const valid = items.filter((i) => i.product_id && Number(i.quantity_received) >= 0);
@@ -278,9 +288,14 @@ function GRNModal({ purchase, currentUser, onClose, onSaved }: { purchase: Purch
 
 function ViewGRNsModal({ purchase, onClose }: { purchase: PurchaseRequest; onClose: () => void }) {
   const [grns, setGrns] = useState<unknown[]>([]);
-  if (grns.length === 0) {
-    supabase.from('goods_received_notes').select(`*, items:goods_received_items(*, product:products(name, sku))`).eq('purchase_request_id', purchase.id).order('created_at', { ascending: false }).then(({ data }) => { if (data) setGrns(data); });
-  }
+  // load once (effect, not render, to avoid duplicate requests)
+  useEffect(() => {
+    let cancelled = false;
+    supabase.from('goods_received_notes').select(`*, items:goods_received_items(*, product:products(id,name))`).eq('purchase_request_id', purchase.id).order('created_at', { ascending: false }).then(({ data }) => {
+      if (!cancelled && data) setGrns(data);
+    });
+    return () => { cancelled = true; };
+  }, [purchase.id]);
   return (
     <Modal open onClose={onClose} title={`GRNs for ${purchase.request_number ?? purchase.id.slice(0,8)}`} size="lg">
       <div className="space-y-3">

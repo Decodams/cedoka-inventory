@@ -31,17 +31,19 @@ export function IssuesPage() {
   const { data: businesses } = useSupabaseQuery<Business[]>(
     () => supabase.from('businesses').select('*').eq('is_active', true).order('name'),
     [],
+    { cacheKey: `ref:businesses:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
   );
 
   const { data: branches } = useSupabaseQuery<Branch[]>(
     () => supabase.from('branches').select('*').eq('is_active', true).order('name'),
     [],
+    { cacheKey: `ref:branches:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
   );
 
   const issuesQuery = useMemo(() => {
     let q = supabase
       .from('issues')
-      .select(`*, business:businesses(*), branch:branches(*), reported_by_user:user_profiles!reported_by(full_name), responsible_person_user:user_profiles!responsible_person(full_name)`)
+      .select(`*, business:businesses(id,name), branch:branches(id,name), reported_by_user:user_profiles!reported_by(full_name), responsible_person_user:user_profiles!responsible_person(full_name)`)
       .order('created_at', { ascending: false });
     if (!isExecutive && isBusinessLevel && user?.business_id) {
       q = q.eq('business_id', user.business_id);

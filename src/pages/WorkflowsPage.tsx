@@ -19,10 +19,10 @@ export function WorkflowsPage() {
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Workflow | null>(null);
 
-  const { data: businesses } = useSupabaseQuery<Business[]>(() => supabase.from('businesses').select('*').eq('is_active', true).order('name'), []);
+  const { data: businesses } = useSupabaseQuery<Business[]>(() => supabase.from('businesses').select('*').eq('is_active', true).order('name'), [], { cacheKey: `ref:businesses:${user?.id ?? 'anon'}`, ttlMs: 60_000 });
   const { data: workflows, loading, error, refetch } = useSupabaseQuery<Workflow[]>(
     () => {
-      let q = supabase.from('workflows').select(`*, business:businesses(*)`).order('created_at', { ascending: false });
+      let q = supabase.from('workflows').select(`*, business:businesses(id,name)`).order('created_at', { ascending: false });
       if (!isExecutive && user?.business_id) q = q.or(`business_id.is.null,business_id.eq.${user.business_id}`);
       if (filterBusiness !== 'all') q = q.eq('business_id', filterBusiness);
       return q;

@@ -24,17 +24,19 @@ export function InventoryPage() {
   const { data: branches } = useSupabaseQuery<Branch[]>(
     () => supabase.from('branches').select('*').eq('is_active', true).order('name'),
     [],
+    { cacheKey: `ref:branches:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
   );
 
   const { data: products } = useSupabaseQuery<Product[]>(
-    () => supabase.from('products').select('*').eq('is_active', true).order('name'),
+    () => supabase.from('products').select('id,business_id,name,sku,unit').eq('is_active', true).order('name'),
     [],
+    { cacheKey: `ref:products:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
   );
 
   const balancesQuery = useMemo(() => {
     let q = supabase
       .from('inventory_balances')
-      .select(`*, product:products(*), branch:branches(*)`)
+      .select(`*, product:products(id,name,sku,unit), branch:branches(id,name)`)
       .order('updated_at', { ascending: false });
     if (!isBusinessLevel && user?.branch_id) q = q.eq('branch_id', user.branch_id);
     if (filterBranch !== 'all') q = q.eq('branch_id', filterBranch);
@@ -42,12 +44,16 @@ export function InventoryPage() {
   }, [isBusinessLevel, user, filterBranch]);
 
   const { data: balances, loading: loadingBalances, error: errorBalances, refetch: refetchBalances } =
-    useSupabaseQuery<InventoryBalance[]>(() => balancesQuery, [balancesQuery]);
+    useSupabaseQuery<InventoryBalance[]>(
+      () => balancesQuery,
+      [balancesQuery],
+      { cacheKey: `inv:balances:${user?.id ?? 'anon'}:${user?.branch_id ?? '-'}:${filterBranch}` },
+    );
 
   const ledgerQuery = useMemo(() => {
     let q = supabase
       .from('inventory_transactions')
-      .select(`*, product:products(*), branch:branches(*), actor:user_profiles!actor_id(full_name)`)
+      .select(`*, product:products(id,name,sku), branch:branches(id,name), actor:user_profiles!actor_id(full_name)`)
       .order('transaction_date', { ascending: false })
       .limit(100);
     if (!isBusinessLevel && user?.branch_id) q = q.eq('branch_id', user.branch_id);
@@ -56,7 +62,11 @@ export function InventoryPage() {
   }, [isBusinessLevel, user, filterBranch]);
 
   const { data: transactions, loading: loadingTxns, error: errorTxns, refetch: refetchTxns } =
-    useSupabaseQuery<InventoryTransaction[]>(() => ledgerQuery, [ledgerQuery]);
+    useSupabaseQuery<InventoryTransaction[]>(
+      () => ledgerQuery,
+      [ledgerQuery],
+      { cacheKey: `inv:ledger:${user?.id ?? 'anon'}:${user?.branch_id ?? '-'}:${filterBranch}` },
+    );
 
   const filteredBalances = useMemo(() => {
     if (!balances) return [];

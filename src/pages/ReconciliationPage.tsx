@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { ClipboardCheck, Plus, AlertTriangle, Search, History, CheckCircle, XCircle } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSupabaseQuery, supabase } from '@/hooks/useSupabaseQuery';
@@ -26,12 +26,13 @@ export function ReconciliationPage() {
   const { data: branches } = useSupabaseQuery<Branch[]>(
     () => supabase.from('branches').select('*').eq('is_active', true).order('name'),
     [],
+    { cacheKey: `ref:branches:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
   );
 
   const periodsQuery = useMemo(() => {
     let q = supabase
       .from('inventory_periods')
-      .select(`*, branch:branches(*), business:businesses(*)`)
+      .select(`*, branch:branches(id,name), business:businesses(id,name)`)
       .order('period_end', { ascending: false })
       .limit(60);
     if (!isExecutive && !isBusinessLevel && user?.branch_id) q = q.eq('branch_id', user.branch_id);
@@ -117,7 +118,7 @@ function NewPeriodModal({ branches, currentUser, onClose, onSaved }: { branches:
   // fetch products for selected branch business
   // load products when branch changes
   const loadProducts = useCallback(async (bizId: string) => {
-    const { data } = await supabase.from('products').select('*').eq('is_active', true).eq('business_id', bizId).order('name');
+    const { data } = await supabase.from('products').select('id,name').eq('is_active', true).eq('business_id', bizId).order('name');
     setProducts((data as Product[]) ?? []);
   }, []);
 
@@ -145,7 +146,7 @@ function NewPeriodModal({ branches, currentUser, onClose, onSaved }: { branches:
     if (e || !period) { setError('Could not create period. ' + (e?.message ?? '')); setSaving(false); return; }
 
     // auto-create lines: derive opening from last approved period's physical closing or current inventory_balances
-    const bizProducts = products.length ? products : (await supabase.from('products').select('*').eq('is_active', true).eq('business_id', br.business_id).then(r=>r.data as Product[] ?? []));
+    const bizProducts = products.length ? products : (await supabase.from('products').select('id,name').eq('is_active', true).eq('business_id', br.business_id).then(r=>r.data as Product[] ?? []));
     // fetch prior period lines for auto-opening
     const { data: priorPeriod } = await supabase.from('inventory_periods').select('id').eq('branch_id', branchId).neq('id', period.id).order('period_end', {ascending:false}).limit(1).maybeSingle();
     const priorLines: Record<string, number> = {};
@@ -196,13 +197,13 @@ function PeriodDetailView({ period, onBack, onRefresh }: { period: InventoryPeri
   const canApprove = isAtLeast(user, 'admin');
 
   const { data: lines, loading, error, refetch } = useSupabaseQuery<InventoryPeriodLine[]>(
-    () => supabase.from('inventory_period_lines').select(`*, product:products(*)`)
+    () => supabase.from('inventory_period_lines').select(`*, product:products(id,name,sku,unit)`)
       .eq('period_id', period.id).order('product:products(name)'),
     [period.id],
   );
 
   const { data: variances } = useSupabaseQuery<StockVariance[]>(
-    () => supabase.from('stock_variances').select(`*, product:products(*), branch:branches(*)`).in('period_line_id', (lines?.map(l=>l.id) ?? ['00000000-0000-0000-0000-000000000000'])).order('created_at', {ascending:false}),
+    () => supabase.from('stock_variances').select(`*, product:products(id,name,sku), branch:branches(id,name)`).in('period_line_id', (lines?.map(l=>l.id) ?? ['00000000-0000-0000-0000-000000000000'])).order('created_at', {ascending:false}),
     [lines?.map(l=>l.id).join(',')],
   );
 
@@ -439,10 +440,14 @@ function AddProductLineModal({ period, existingIds, onClose, onSaved }: { period
   const [products, setProducts] = useState<Product[]>([]);
   const [saving, setSaving] = useState(false);
 
-  // load products for business
-  useState(() => {
-    supabase.from('products').select('*').eq('is_active', true).eq('business_id', period.business_id).order('name').then(({data})=> setProducts((data as Product[]) ?? []));
-  });
+  // load products for business once (effect, not render/state-initializer, to avoid duplicate requests)
+  useEffect(() => {
+    let cancelled = false;
+    supabase.from('products').select('id,name,sku').eq('is_active', true).eq('business_id', period.business_id).order('name').then(({data}) => {
+      if (!cancelled) setProducts((data as Product[]) ?? []);
+    });
+    return () => { cancelled = true; };
+  }, [period.business_id]);
 
   // useEffect pattern without hook import side effect - do via query hook alternative
   // Actually just query inside
@@ -454,11 +459,6 @@ function AddProductLineModal({ period, existingIds, onClose, onSaved }: { period
     await supabase.from('inventory_period_lines').insert({ period_id: period.id, product_id: productId, opening_quantity: Number(opening||0) });
     setSaving(false); onSaved();
   };
-
-  // lazy load
-  if (products.length===0) {
-    supabase.from('products').select('*').eq('is_active', true).eq('business_id', period.business_id).order('name').then(({data})=> { if(data && products.length===0) setProducts(data as Product[]); });
-  }
 
   return (
     <Modal open onClose={onClose} title="Add Product Line" size="md">

@@ -22,11 +22,11 @@ export function LocationsPage() {
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Location | null>(null);
 
-  const { data: businesses } = useSupabaseQuery<Business[]>(() => supabase.from('businesses').select('*').eq('is_active', true).order('name'), []);
-  const { data: branches } = useSupabaseQuery<Branch[]>(() => supabase.from('branches').select('*').eq('is_active', true).order('name'), []);
+  const { data: businesses } = useSupabaseQuery<Business[]>(() => supabase.from('businesses').select('*').eq('is_active', true).order('name'), [], { cacheKey: `ref:businesses:${user?.id ?? 'anon'}`, ttlMs: 60_000 });
+  const { data: branches } = useSupabaseQuery<Branch[]>(() => supabase.from('branches').select('*').eq('is_active', true).order('name'), [], { cacheKey: `ref:branches:${user?.id ?? 'anon'}`, ttlMs: 60_000 });
   const { data: locations, loading, error, refetch } = useSupabaseQuery<Location[]>(
     () => {
-      let q = supabase.from('locations').select(`*, business:businesses(*), branch:branches(*)`).order('created_at', { ascending: false });
+      let q = supabase.from('locations').select(`*, business:businesses(id,name), branch:branches(id,name)`).order('created_at', { ascending: false });
       if (!isExecutive && user?.business_id) q = q.eq('business_id', user.business_id);
       if (filterBusiness !== 'all') q = q.eq('business_id', filterBusiness);
       return q;

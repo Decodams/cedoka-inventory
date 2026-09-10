@@ -22,12 +22,13 @@ export function ActivitiesPage() {
   const { data: branches } = useSupabaseQuery<Branch[]>(
     () => supabase.from('branches').select('*').eq('is_active', true).order('name'),
     [],
+    { cacheKey: `ref:branches:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
   );
 
   const activitiesQuery = useMemo(() => {
     let q = supabase
       .from('daily_activities')
-      .select(`*, branch:branches(*), recorded_by_user:user_profiles!recorded_by(full_name)`)
+      .select(`*, branch:branches(id,name), recorded_by_user:user_profiles!recorded_by(full_name)`)
       .order('activity_date', { ascending: false })
       .order('created_at', { ascending: false })
       .limit(100);

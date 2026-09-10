@@ -49,18 +49,20 @@ export function WeeklyReportsPage() {
   const { data: businesses } = useSupabaseQuery<Business[]>(
     () => supabase.from('businesses').select('*').eq('is_active', true).order('name'),
     [],
+    { cacheKey: `ref:businesses:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
   );
 
   const { data: branches } = useSupabaseQuery<Branch[]>(
     () => supabase.from('branches').select('*').eq('is_active', true).order('name'),
     [],
+    { cacheKey: `ref:branches:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
   );
 
   const reportsQuery = useMemo(() => {
     let q = supabase
       .from('weekly_reports')
       .select(
-        `*, business:businesses(*), branch:branches(*), submitted_by_user:user_profiles!submitted_by(full_name), reviewed_by_user:user_profiles!reviewed_by(full_name)`,
+        `*, business:businesses(id,name), branch:branches(id,name), submitted_by_user:user_profiles!submitted_by(full_name), reviewed_by_user:user_profiles!reviewed_by(full_name)`,
       )
       .order('week_end_date', { ascending: false })
       .order('created_at', { ascending: false });
