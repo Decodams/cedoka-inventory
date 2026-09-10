@@ -26,11 +26,12 @@ export function Modal({ open, onClose, title, children, size = 'md' }: ModalProp
         onClick={onClose}
       />
       <div
-        className={`relative bg-white rounded-2xl shadow-2xl w-full ${sizeClasses[size]} max-h-[85vh] sm:max-h-[90vh] flex flex-col overflow-hidden`}
+        className={`relative bg-white rounded-2xl shadow-2xl w-full ${sizeClasses[size]} max-h-[92vh] sm:max-h-[90vh] flex flex-col overflow-hidden`}
       >
         <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-100 shrink-0">
           <h2 className="text-base sm:text-lg font-semibold text-slate-900 pr-4 leading-tight">{title}</h2>
           <button
+            type="button"
             onClick={onClose}
             className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors shrink-0"
           >

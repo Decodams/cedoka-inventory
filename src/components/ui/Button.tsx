@@ -26,6 +26,7 @@ const sizeClasses: Record<Size, string> = {
 export function Button({
   variant = 'primary',
   size = 'md',
+  type = 'button',
   children,
   className = '',
   ...props
@@ -33,6 +34,7 @@ export function Button({
   return (
     <button
       className={`inline-flex min-w-0 shrink-0 touch-manipulation items-center justify-center whitespace-normal sm:whitespace-nowrap font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/30 disabled:opacity-50 disabled:cursor-not-allowed overflow-hidden text-overflow-ellipsis ${variantClasses[variant]} ${sizeClasses[size]} ${className}`}
+      type={type}
       {...props}
     >
       {children}

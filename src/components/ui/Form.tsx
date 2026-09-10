@@ -5,7 +5,8 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   error?: string;
 }
 
-export function Input({ label, error, className = '', ...props }: InputProps) {
+export function Input({ label, error, className = '', placeholder: _placeholder, ...props }: InputProps) {
+  void _placeholder;
   return (
     <div className="space-y-1.5">
       {label && <label className="block text-sm font-medium text-slate-700">{label}</label>}
@@ -48,7 +49,8 @@ interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
   error?: string;
 }
 
-export function Textarea({ label, error, className = '', ...props }: TextareaProps) {
+export function Textarea({ label, error, className = '', placeholder: _placeholder, ...props }: TextareaProps) {
+  void _placeholder;
   return (
     <div className="space-y-1.5">
       {label && <label className="block text-sm font-medium text-slate-700">{label}</label>}

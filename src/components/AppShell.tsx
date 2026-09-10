@@ -47,8 +47,7 @@ export type PageKey =
   | 'customers'
   | 'services'
   | 'locations'
-  | 'workflows'
-  | 'report-types';
+  | 'workflows';
 
 interface NavItem {
   key: PageKey;
@@ -80,7 +79,6 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'teams', label: 'Teams', icon: Users, visible: (r) => r === 'super_admin' || r === 'admin', section: 'organization' },
   { key: 'locations', label: 'Locations', icon: MapPin, visible: (r) => r === 'super_admin' || r === 'admin', section: 'organization' },
   { key: 'workflows', label: 'Workflows', icon: GitBranch, visible: (r) => r === 'super_admin' || r === 'admin', section: 'organization' },
-  { key: 'report-types', label: 'Report Types', icon: FileText, visible: (r) => r === 'super_admin' || r === 'admin', section: 'organization' },
   { key: 'users', label: 'User Management', icon: Users, visible: (r) => r === 'super_admin' || r === 'admin' || r === 'manager', section: 'organization' },
   { key: 'audit', label: 'Audit Log', icon: FileText, visible: (r) => r === 'super_admin' || r === 'admin', section: 'organization' },
 ];
@@ -102,6 +100,7 @@ export function AppShell({ currentPage, onPageChange, children }: AppShellProps)
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [activityPluginEnabled, setActivityPluginEnabled] = useState(true);
+  const [pluginMessage, setPluginMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -117,12 +116,14 @@ export function AppShell({ currentPage, onPageChange, children }: AppShellProps)
   const toggleActivityPlugin = async () => {
     const nextEnabled = !activityPluginEnabled;
     setActivityPluginEnabled(nextEnabled);
-    await supabase.from('user_dashboard_plugins').upsert({
+    const { error } = await supabase.from('user_dashboard_plugins').upsert({
       user_id: user?.id,
       plugin_key: 'activity_reports',
       is_enabled: nextEnabled,
       updated_at: new Date().toISOString(),
     });
+    setPluginMessage(error ? 'Could not save preference.' : `Activity reports turned ${nextEnabled ? 'on' : 'off'}.`);
+    window.setTimeout(() => setPluginMessage(null), 2500);
     if (!nextEnabled && currentPage === 'activities') onPageChange('dashboard');
   };
 
@@ -136,7 +137,7 @@ export function AppShell({ currentPage, onPageChange, children }: AppShellProps)
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
+    <div className="min-h-screen bg-slate-50 flex overflow-x-hidden">
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div
@@ -279,6 +280,7 @@ export function AppShell({ currentPage, onPageChange, children }: AppShellProps)
                       {activityPluginEnabled ? 'On' : 'Off'}
                     </span>
                   </button>
+                  {pluginMessage && <p role="status" className="px-4 py-1 text-xs text-emerald-600">{pluginMessage}</p>}
                   <button
                     onClick={() => {
                       setUserMenuOpen(false);
@@ -296,7 +298,7 @@ export function AppShell({ currentPage, onPageChange, children }: AppShellProps)
         </header>
 
         {/* Page content */}
-        <main className="flex-1 min-w-0 overflow-x-auto p-4 sm:p-6 lg:p-8">{children}</main>
+        <main className="flex-1 min-w-0 overflow-x-hidden p-3 sm:p-6 lg:p-8">{children}</main>
       </div>
     </div>
   );

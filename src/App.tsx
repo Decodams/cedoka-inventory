@@ -2,6 +2,8 @@ import { useState, lazy, Suspense } from 'react';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { LoginPage } from '@/pages/LoginPage';
 import { AppShell, type PageKey } from '@/components/AppShell';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { NotFoundPage } from '@/components/NotFoundPage';
 import { LoadingState } from '@/components/ui/States';
 
 const DashboardPage = lazy(() => import('@/pages/DashboardPage').then(m => ({ default: m.DashboardPage })));
@@ -24,7 +26,6 @@ const CustomersPage = lazy(() => import('@/pages/CustomersPage').then(m => ({ de
 const ServicesPage = lazy(() => import('@/pages/ServicesPage').then(m => ({ default: m.ServicesPage })));
 const LocationsPage = lazy(() => import('@/pages/LocationsPage').then(m => ({ default: m.LocationsPage })));
 const WorkflowsPage = lazy(() => import('@/pages/WorkflowsPage').then(m => ({ default: m.WorkflowsPage })));
-const ReportTypesPage = lazy(() => import('@/pages/ReportTypesPage').then(m => ({ default: m.ReportTypesPage })));
 
 function AppContent() {
   const { user, loading } = useAuth();
@@ -36,6 +37,10 @@ function AppContent() {
         <LoadingState message="Loading..." />
       </div>
     );
+  }
+
+  if (window.location.pathname !== '/' && window.location.pathname !== '') {
+    return <NotFoundPage />;
   }
 
   if (!user) {
@@ -82,8 +87,6 @@ function AppContent() {
         return <LocationsPage />;
       case 'workflows':
         return <WorkflowsPage />;
-      case 'report-types':
-        return <ReportTypesPage />;
       case 'audit':
         return <AuditLogPage />;
       default:
@@ -102,9 +105,11 @@ function AppContent() {
 
 function App() {
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }
 

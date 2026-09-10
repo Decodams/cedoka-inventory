@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { Building2, Lock, Mail, Eye, EyeOff, Loader2, UserPlus } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
@@ -12,6 +12,8 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
+  const [website, setWebsite] = useState('');
+  const lastRegistrationAt = useRef(0);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -20,6 +22,22 @@ export function LoginPage() {
     setLoading(true);
 
     if (mode === 'register') {
+      if (website.trim()) {
+        setError('Unable to submit registration.');
+        setLoading(false);
+        return;
+      }
+      if (Date.now() - lastRegistrationAt.current < 30_000) {
+        setError('Please wait before submitting another registration.');
+        setLoading(false);
+        return;
+      }
+      if (fullName.trim().length < 2 || password.length < 8) {
+        setError('Enter your full name and a password with at least 8 characters.');
+        setLoading(false);
+        return;
+      }
+      lastRegistrationAt.current = Date.now();
       const { error: registrationError } = await registerStaff(fullName, email, password);
       if (registrationError) setError(registrationError);
       else {
@@ -71,6 +89,11 @@ export function LoginPage() {
               </div>
             )}
 
+            <div className="hidden" aria-hidden="true">
+              <label htmlFor="website">Website</label>
+              <input id="website" tabIndex={-1} autoComplete="off" value={website} onChange={(e) => setWebsite(e.target.value)} />
+            </div>
+
             <div className="space-y-1.5">
               <label className="block text-sm font-medium text-slate-700">Email</label>
               <div className="relative">
@@ -85,7 +108,6 @@ export function LoginPage() {
                   required
                   autoComplete="email"
                   autoFocus
-                  placeholder="you@cedoka.com"
                   className="w-full pl-10 pr-3.5 py-2.5 text-sm border border-slate-300 rounded-lg outline-none transition-all placeholder:text-slate-400 focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10"
                 />
               </div>
@@ -105,7 +127,6 @@ export function LoginPage() {
                   required
                   minLength={mode === 'register' ? 8 : undefined}
                   autoComplete="current-password"
-                  placeholder="Enter your password"
                   className="w-full pl-10 pr-10 py-2.5 text-sm border border-slate-300 rounded-lg outline-none transition-all placeholder:text-slate-400 focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10"
                 />
                 <button
