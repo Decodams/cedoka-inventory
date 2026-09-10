@@ -194,6 +194,29 @@ BEGIN
   DROP POLICY IF EXISTS inventory_txns_select_authenticated ON inventory_transactions;
 END $$;
 
+-- Keep this migration replay-safe when an earlier deployment created these policies.
+DO $$
+DECLARE
+  policy_row record;
+BEGIN
+  FOR policy_row IN
+    SELECT schemaname, tablename, policyname
+    FROM pg_policies
+    WHERE policyname IN (
+      'categories_scoped_select', 'suppliers_scoped_select', 'products_scoped_select',
+      'weekly_reports_scoped_select', 'daily_activities_scoped_select', 'issues_scoped_select',
+      'purchase_requests_scoped_select', 'goods_received_notes_scoped_select',
+      'stock_transfers_scoped_select', 'inventory_balances_scoped_select',
+      'inventory_txns_scoped_select', 'inventory_periods_scoped_select',
+      'inventory_period_lines_scoped_select', 'stock_variances_scoped_select',
+      'daily_sales_scoped_select', 'operational_expenses_scoped_select',
+      'audit_log_insert_authenticated'
+    )
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %I.%I', policy_row.policyname, policy_row.schemaname, policy_row.tablename);
+  END LOOP;
+END $$;
+
 CREATE POLICY categories_scoped_select ON categories FOR
 SELECT TO authenticated USING (
         can_access_business (business_id)

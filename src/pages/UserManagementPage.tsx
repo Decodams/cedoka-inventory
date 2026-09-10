@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { UserPlus, Users, Pencil, Power, Mail, MapPin } from 'lucide-react';
+import { UserPlus, Users, Power, Mail, MapPin, Check, XCircle } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSupabaseQuery, supabase } from '@/hooks/useSupabaseQuery';
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States';
@@ -20,7 +20,7 @@ export function UserManagementPage() {
     () =>
       supabase
         .from('user_profiles')
-        .select(`*, role:roles(*), business:businesses(*), branch:branches(*)`)
+        .select(`*, role:roles(*), business:businesses!user_profiles_business_id_fkey(*), branch:branches!user_profiles_branch_id_fkey(*)`)
         .order('created_at', { ascending: false }),
     [],
   );
@@ -55,7 +55,6 @@ export function UserManagementPage() {
   if (loading) return <LoadingState />;
   if (error) return <ErrorState message="Could not load users." onRetry={refetch} />;
 
-  const roleName = user?.role?.name ?? null;
 
   return (
     <div className="space-y-6">
@@ -158,27 +157,27 @@ export function UserManagementPage() {
                     <td className="px-5 py-3">
                       <Badge
                         className={
-                          p.is_active
+                          p.approval_status === 'pending'
+                            ? 'bg-amber-100 text-amber-700 border-amber-200'
+                            : p.approval_status === 'rejected'
+                              ? 'bg-rose-100 text-rose-700 border-rose-200'
+                              : p.is_active
                             ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
                             : 'bg-gray-100 text-gray-500 border-gray-200'
                         }
                       >
-                        {p.is_active ? 'Active' : 'Inactive'}
+                        {p.approval_status === 'pending' ? 'Awaiting approval' : p.approval_status === 'rejected' ? 'Rejected' : p.is_active ? 'Active' : 'Inactive'}
                       </Badge>
                     </td>
                     <td className="px-5 py-3 text-right">
-                      {isAtLeast(user, 'admin') && p.id !== user?.id && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={async () => {
-                            await supabase.rpc(p.is_active ? 'deactivate_user' : 'activate_user', { p_user_id: p.id });
-                            refetch();
-                          }}
-                        >
-                          <Power size={14} /> {p.is_active ? 'Deactivate' : 'Activate'}
-                        </Button>
-                      )}
+                      {isAtLeast(user, 'admin') && p.id !== user?.id && p.approval_status === 'pending' ? (
+                        <div className="flex flex-wrap justify-end gap-2">
+                          <Button variant="primary" size="sm" onClick={async () => { await supabase.functions.invoke('update-user-status', { body: { p_user_id: p.id, p_action: 'approve' } }); refetch(); }}><Check size={14} /> Approve</Button>
+                          <Button variant="danger" size="sm" onClick={async () => { await supabase.functions.invoke('update-user-status', { body: { p_user_id: p.id, p_action: 'reject' } }); refetch(); }}><XCircle size={14} /> Reject</Button>
+                        </div>
+                      ) : isAtLeast(user, 'admin') && p.id !== user?.id ? (
+                        <Button variant="ghost" size="sm" onClick={async () => { await supabase.functions.invoke('update-user-status', { body: { p_user_id: p.id, p_action: p.is_active ? 'deactivate' : 'activate' } }); refetch(); }}><Power size={14} /> {p.is_active ? 'Deactivate' : 'Activate'}</Button>
+                      ) : null}
                     </td>
                   </tr>
                 ))}
@@ -277,17 +276,19 @@ function CreateUserModal({
       return;
     }
 
-    const { error: rpcError } = await supabase.rpc('create_user_account', {
-      p_email: email.trim(),
-      p_password: password,
-      p_full_name: fullName.trim(),
-      p_role_name: selectedRoleName,
-      p_business_id: needsBusiness ? businessId || null : null,
-      p_branch_id: needsBranch ? branchId || null : null,
+    const { error: createError } = await supabase.functions.invoke('create-user-account', {
+      body: {
+        p_email: email.trim(),
+        p_password: password,
+        p_full_name: fullName.trim(),
+        p_role_name: selectedRoleName,
+        p_business_id: needsBusiness ? businessId || null : null,
+        p_branch_id: needsBranch ? branchId || null : null,
+      },
     });
 
-    if (rpcError) {
-      setError('Could not create the user account. Please try again.');
+    if (createError) {
+      setError(createError.message || 'Could not create the user account. Please try again.');
       setSaving(false);
       return;
     }

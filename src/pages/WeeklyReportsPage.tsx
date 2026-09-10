@@ -3,7 +3,6 @@ import {
   ClipboardList,
   Plus,
   Eye,
-  Send,
   CheckCircle,
   Pencil,
   AlertTriangle,
@@ -33,7 +32,7 @@ import {
   toDateString,
 } from '@/lib/dateUtils';
 import { isAtLeast, hasRole } from '@/lib/rbac';
-import type { WeeklyReport, Business, Branch, ReportAmendment, ReportStatus } from '@/types/database';
+import type { WeeklyReport, Business, Branch, ReportAmendment } from '@/types/database';
 
 export function WeeklyReportsPage() {
   const { user } = useAuth();
@@ -236,7 +235,6 @@ function ReportFormModal({
 }) {
   const isExecutive = currentUser?.role?.name === 'super_admin';
   const isBusinessLevel = currentUser?.role?.name === 'admin';
-  const isManager = currentUser?.role?.name === 'manager';
 
   const availableBusinesses = isExecutive ? businesses : businesses.filter((b) => b.id === currentUser?.business_id);
   const availableBranches = isExecutive
@@ -247,7 +245,6 @@ function ReportFormModal({
 
   const [businessId, setBusinessId] = useState(report?.business_id ?? currentUser?.business_id ?? '');
   const [branchId, setBranchId] = useState(report?.branch_id ?? currentUser?.branch_id ?? '');
-  const weekStart = toDateString(getWeekStart(new Date()));
   const weekEnd = toDateString(getWeekEnd(new Date()));
   const [weekEndDate, setWeekEndDate] = useState(report?.week_end_date ?? weekEnd);
 

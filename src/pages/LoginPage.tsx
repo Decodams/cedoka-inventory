@@ -1,34 +1,46 @@
 import { useState, type FormEvent } from 'react';
-import { Building2, Lock, Mail, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { Building2, Lock, Mail, Eye, EyeOff, Loader2, UserPlus } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
 export function LoginPage() {
-  const { signIn } = useAuth();
+  const { signIn, registerStaff } = useAuth();
+  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState<string | null>(null);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
+    setSuccess(null);
     setLoading(true);
+
+    if (mode === 'register') {
+      const { error: registrationError } = await registerStaff(fullName, email, password);
+      if (registrationError) setError(registrationError);
+      else {
+        setSuccess('Registration submitted. An administrator must approve your account before you can sign in.');
+        setMode('login');
+        setPassword('');
+      }
+      setLoading(false);
+      return;
+    }
 
     const { error: signInError } = await signIn(email, password);
     if (signInError) {
       const normalizedError = signInError.toLowerCase();
-      setError(
-        normalizedError.includes('invalid login credentials')
-          ? 'Invalid email or password. Please try again.'
-          : signInError,
-      );
+      setError(normalizedError.includes('invalid login credentials') ? 'Invalid email or password. Please try again.' : signInError);
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-slate-100 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-slate-900 text-white mb-4 shadow-lg">
@@ -41,10 +53,24 @@ export function LoginPage() {
         </div>
 
         <div className="bg-white rounded-2xl shadow-xl border border-slate-100 p-8">
-          <h2 className="text-lg font-semibold text-slate-900 mb-1">Welcome back</h2>
-          <p className="text-sm text-slate-500 mb-6">Sign in to access your dashboard</p>
+          <div className="flex gap-1 rounded-xl bg-slate-100 p-1 mb-6">
+            <button type="button" onClick={() => { setMode('login'); setError(null); setSuccess(null); }} className={`flex-1 min-h-10 rounded-lg px-3 text-sm font-semibold ${mode === 'login' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>Sign in</button>
+            <button type="button" onClick={() => { setMode('register'); setError(null); setSuccess(null); }} className={`flex-1 min-h-10 rounded-lg px-3 text-sm font-semibold ${mode === 'register' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>Register</button>
+          </div>
+          <h2 className="text-lg font-semibold text-slate-900 mb-1">{mode === 'login' ? 'Welcome back' : 'Request access'}</h2>
+          <p className="text-sm text-slate-500 mb-6">{mode === 'login' ? 'Sign in to access your workspace' : 'Create a staff request for administrator approval'}</p>
 
           <form onSubmit={handleSubmit} className="space-y-5">
+            {mode === 'register' && (
+              <div className="space-y-1.5">
+                <label className="block text-sm font-medium text-slate-700">Full name</label>
+                <div className="relative">
+                  <UserPlus size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input value={fullName} onChange={(e) => setFullName(e.target.value)} required autoComplete="name" placeholder="Your full name" className="w-full pl-10 pr-3.5 py-2.5 text-sm border border-slate-300 rounded-lg outline-none transition-all placeholder:text-slate-400 focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10" />
+                </div>
+              </div>
+            )}
+
             <div className="space-y-1.5">
               <label className="block text-sm font-medium text-slate-700">Email</label>
               <div className="relative">
@@ -77,6 +103,7 @@ export function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
+                  minLength={mode === 'register' ? 8 : undefined}
                   autoComplete="current-password"
                   placeholder="Enter your password"
                   className="w-full pl-10 pr-10 py-2.5 text-sm border border-slate-300 rounded-lg outline-none transition-all placeholder:text-slate-400 focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10"
@@ -91,6 +118,9 @@ export function LoginPage() {
               </div>
             </div>
 
+            {success && (
+              <div className="px-4 py-3 rounded-lg bg-emerald-50 border border-emerald-200 text-sm text-emerald-700">{success}</div>
+            )}
             {error && (
               <div className="px-4 py-3 rounded-lg bg-rose-50 border border-rose-200 text-sm text-rose-700">
                 {error}
@@ -108,7 +138,7 @@ export function LoginPage() {
                   Signing in...
                 </>
               ) : (
-                'Sign In'
+                mode === 'login' ? 'Sign In' : 'Submit Registration'
               )}
             </button>
           </form>

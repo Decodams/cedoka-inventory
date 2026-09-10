@@ -97,6 +97,11 @@ export interface UserProfile {
   business_id: string | null;
   branch_id: string | null;
   is_active: boolean;
+  approval_status: 'pending' | 'approved' | 'rejected';
+  approval_reason: string | null;
+  requested_at: string;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
   created_by: string | null;
   created_at: string;
   role?: Role;
@@ -467,6 +472,94 @@ export interface OperationalExpense {
   approved_by: string | null;
   created_at: string;
   branch?: Branch;
+  business?: Business;
+}
+
+export interface Department {
+  id: string;
+  business_id: string;
+  name: string;
+  description: string;
+  is_active: boolean;
+  created_at: string;
+  business?: Business;
+}
+
+export interface Team {
+  id: string;
+  business_id: string;
+  department_id: string | null;
+  branch_id: string | null;
+  name: string;
+  description: string;
+  lead_user_id: string | null;
+  is_active: boolean;
+  created_at: string;
+  business?: Business;
+  department?: Department;
+  branch?: Branch;
+  lead_user?: UserProfile;
+}
+
+export interface Customer {
+  id: string;
+  business_id: string;
+  branch_id: string | null;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  address: string;
+  is_active: boolean;
+  created_at: string;
+  business?: Business;
+  branch?: Branch;
+}
+
+export interface Service {
+  id: string;
+  business_id: string;
+  name: string;
+  sku: string | null;
+  description: string;
+  category: string | null;
+  unit_price: number;
+  is_active: boolean;
+  created_at: string;
+  business?: Business;
+}
+
+export interface Location {
+  id: string;
+  business_id: string;
+  branch_id: string | null;
+  name: string;
+  address: string;
+  location_type: 'warehouse' | 'store' | 'office' | 'branch' | 'inventory' | 'other';
+  is_active: boolean;
+  created_at: string;
+  business?: Business;
+  branch?: Branch;
+}
+
+export interface Workflow {
+  id: string;
+  business_id: string | null;
+  name: string;
+  description: string;
+  steps: string[];
+  is_active: boolean;
+  created_at: string;
+  business?: Business;
+}
+
+export interface ReportType {
+  id: string;
+  business_id: string | null;
+  name: string;
+  description: string;
+  fields: string[];
+  is_active: boolean;
+  created_at: string;
   business?: Business;
 }
 

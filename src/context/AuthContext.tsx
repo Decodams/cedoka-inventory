@@ -9,6 +9,7 @@ interface AuthContextValue {
   roles: Role[];
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
+  registerStaff: (fullName: string, email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -27,8 +28,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .select(
         `*,
         role:roles(*),
-        business:businesses(*),
-        branch:branches(*)`,
+        business:businesses!user_profiles_business_id_fkey(*),
+        branch:branches!user_profiles_branch_id_fkey(*)`,
       )
       .eq('id', userId)
       .maybeSingle();
@@ -99,7 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signIn = useCallback(
     async (email: string, password: string): Promise<{ error: string | null }> => {
       const normalizedEmail = email.trim().toLowerCase();
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email: normalizedEmail,
         password,
       });
@@ -107,10 +108,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.error('Supabase sign-in failed:', error);
         return { error: error.message || 'Unable to sign in.' };
       }
+      const profile = data.user ? await fetchUserProfile(data.user.id) : null;
+      if (!profile) {
+        await supabase.auth.signOut();
+        return { error: 'Your account profile is not ready. Contact an administrator.' };
+      }
+      if (profile.approval_status === 'pending') {
+        await supabase.auth.signOut();
+        return { error: 'Your registration is awaiting administrator approval.' };
+      }
+      if (profile.approval_status === 'rejected' || !profile.is_active) {
+        await supabase.auth.signOut();
+        return { error: profile.approval_reason || 'This account is not active. Contact an administrator.' };
+      }
       return { error: null };
     },
-    [],
+    [fetchUserProfile],
   );
+
+  const registerStaff = useCallback(async (fullName: string, email: string, password: string) => {
+    const { error } = await supabase.functions.invoke('register-staff', {
+      body: { full_name: fullName.trim(), email: email.trim().toLowerCase(), password },
+    });
+    return { error: error?.message ?? null };
+  }, []);
 
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
@@ -119,7 +140,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ session, user, roles, loading, signIn, signOut, refreshUser }}>
+    <AuthContext.Provider value={{ session, user, roles, loading, signIn, registerStaff, signOut, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

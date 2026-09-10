@@ -19,7 +19,7 @@ authorization checks, bypassing RLS. This is the secure pattern for privileged m
 ### create_user_account(...)
 - Creates a new auth user + user_profile in a single transaction
 - Caller must be authenticated with proper role (super_admin creates anyone, admin creates
-  managers/sales_person within their business, manager creates sales_person within their branch)
+managers/sales_person within their business, manager creates sales_person within their branch)
 - Returns the new user_profile record
 
 ### deactivate_user(p_user_id uuid)
@@ -52,6 +52,7 @@ AS $$
 $$;
 
 REVOKE EXECUTE ON FUNCTION has_permission FROM anon;
+
 GRANT EXECUTE ON FUNCTION has_permission TO authenticated;
 
 -- ==========================================
@@ -68,6 +69,7 @@ AS $$
 $$;
 
 REVOKE EXECUTE ON FUNCTION get_current_user_role FROM anon;
+
 GRANT EXECUTE ON FUNCTION get_current_user_role TO authenticated;
 
 -- ==========================================
@@ -134,28 +136,12 @@ BEGIN
     RAISE EXCEPTION 'Invalid role: %', p_role_name;
   END IF;
 
-  -- Create auth user
-  v_new_user_id := auth.create_user(
-    email := p_email,
-    password := p_password,
-    email_confirm := true
-  );
-
-  -- Create user profile
-  INSERT INTO user_profiles (id, email, full_name, role_id, business_id, branch_id, is_active, created_by)
-  VALUES (v_new_user_id, p_email, p_full_name, v_new_role_id, p_business_id, p_branch_id, true, auth.uid())
-  RETURNING * INTO v_new_profile;
-
-  -- Audit log
-  INSERT INTO audit_log (actor_id, action, target_table, target_id, metadata)
-  VALUES (auth.uid(), 'user.created', 'user_profiles', v_new_user_id,
-          jsonb_build_object('email', p_email, 'role', p_role_name, 'created_by', v_actor_role));
-
-  RETURN v_new_profile;
+  RAISE EXCEPTION 'User creation must use the create-user-account Edge Function';
 END;
 $$;
 
 REVOKE EXECUTE ON FUNCTION create_user_account FROM anon;
+
 GRANT EXECUTE ON FUNCTION create_user_account TO authenticated;
 
 -- ==========================================
@@ -197,4 +183,5 @@ END;
 $$;
 
 REVOKE EXECUTE ON FUNCTION deactivate_user FROM anon;
+
 GRANT EXECUTE ON FUNCTION deactivate_user TO authenticated;

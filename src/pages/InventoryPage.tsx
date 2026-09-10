@@ -8,7 +8,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Input, Select, Textarea } from '@/components/ui/Form';
 import { Badge } from '@/components/ui/Badge';
 import { formatNumber, formatDateTime } from '@/lib/dateUtils';
-import { isAtLeast, hasRole } from '@/lib/rbac';
+import { isAtLeast } from '@/lib/rbac';
 import { MOVEMENT_TYPE_STYLES, MOVEMENT_TYPE_LABELS, MOVEMENT_TYPE_SIGNS } from '@/lib/statusStyles';
 import type { InventoryBalance, InventoryTransaction, Branch, MovementType, Product } from '@/types/database';
 
@@ -19,7 +19,6 @@ export function InventoryPage() {
   const [filterBranch, setFilterBranch] = useState('all');
   const [showMovementModal, setShowMovementModal] = useState(false);
   const canManage = isAtLeast(user, 'manager');
-  const isExecutive = hasRole(user, 'super_admin');
   const isBusinessLevel = isAtLeast(user, 'admin');
 
   const { data: branches } = useSupabaseQuery<Branch[]>(

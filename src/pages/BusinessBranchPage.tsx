@@ -1,5 +1,5 @@
-import { useState, useCallback } from 'react';
-import { Building2, Plus, MapPin, Pencil, Power, ChevronRight, Calendar } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Building2, Plus, MapPin, Pencil, ChevronRight, Calendar, Users, Tag } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSupabaseQuery, supabase } from '@/hooks/useSupabaseQuery';
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States';
@@ -7,8 +7,12 @@ import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { Input, Select, Textarea } from '@/components/ui/Form';
 import { Badge } from '@/components/ui/Badge';
-import { hasRole } from '@/lib/rbac';
-import type { Business, Branch, UserProfile } from '@/types/database';
+import { hasRole, ROLE_COLORS } from '@/lib/rbac';
+import type { Business, Branch, UserProfile, Category, RoleName } from '@/types/database';
+
+type StaffWithRole = Pick<UserProfile, 'id' | 'full_name' | 'business_id' | 'branch_id'> & {
+  role: { name: RoleName; display_name: string } | null;
+};
 
 export function BusinessBranchPage() {
   const { user } = useAuth();
@@ -29,7 +33,37 @@ export function BusinessBranchPage() {
     [],
   );
 
+  const { data: categories } = useSupabaseQuery<Category[]>(
+    () => supabase.from('categories').select('*').eq('is_active', true).order('name'),
+    [],
+  );
+
+  const { data: staff } = useSupabaseQuery<StaffWithRole[]>(
+    () =>
+      supabase
+        .from('user_profiles')
+        .select('id, full_name, business_id, branch_id, role:roles(name, display_name)')
+        .eq('is_active', true)
+        .order('full_name') as unknown as Promise<{ data: StaffWithRole[] | null; error: { message: string } | null }>,
+    [],
+  );
+
   const branchesForBusiness = (bizId: string) => branches?.filter((b) => b.business_id === bizId) ?? [];
+  const categoriesForBusiness = (bizId: string) =>
+    categories?.filter((c) => c.business_id === bizId) ?? [];
+  const staffForBusiness = (bizId: string) => staff?.filter((s) => s.business_id === bizId) ?? [];
+  const staffForBranch = (branchId: string) => staff?.filter((s) => s.branch_id === branchId) ?? [];
+
+  const roleBreakdown = (members: StaffWithRole[]) => {
+    const counts = new Map<string, { display: string; count: number }>();
+    for (const m of members) {
+      const key = m.role?.name ?? 'unassigned';
+      const display = m.role?.display_name ?? 'Unassigned';
+      const prev = counts.get(key);
+      counts.set(key, { display, count: (prev?.count ?? 0) + 1 });
+    }
+    return [...counts.entries()];
+  };
 
   if (loading) return <LoadingState />;
   if (error) return <ErrorState message="Could not load businesses." onRetry={refetch} />;
@@ -75,7 +109,8 @@ export function BusinessBranchPage() {
                       )}
                     </div>
                     <p className="text-xs text-slate-400">
-                      {biz.category ?? 'Uncategorized'} · {branchesForBusiness(biz.id).length} branches
+                      {biz.category ?? 'Uncategorized'} · {branchesForBusiness(biz.id).length} branches ·{' '}
+                      {categoriesForBusiness(biz.id).length} categories · {staffForBusiness(biz.id).length} staff
                     </p>
                   </div>
                 </div>
@@ -103,13 +138,61 @@ export function BusinessBranchPage() {
               </div>
 
               {selectedBusiness?.id === biz.id && (
-                <div className="border-t border-slate-100 px-5 py-4 bg-slate-50/50">
+                <div className="border-t border-slate-100 px-5 py-4 bg-slate-50/50 space-y-5">
                   {biz.description && (
-                    <p className="text-sm text-slate-600 mb-3">{biz.description}</p>
+                    <p className="text-sm text-slate-600">{biz.description}</p>
                   )}
+
+                  {/* Categories scoped to this business */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Tag size={13} className="text-slate-400" />
+                      <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                        Categories · {categoriesForBusiness(biz.id).length}
+                      </h4>
+                    </div>
+                    {categoriesForBusiness(biz.id).length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {categoriesForBusiness(biz.id).map((c) => (
+                          <Badge key={c.id} className="bg-white text-slate-600 border-slate-200">
+                            {c.name}
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-400">
+                        No categories yet for this business. Add them from Products → Categories.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Roles scoped to this business — same role names can repeat per branch */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Users size={13} className="text-slate-400" />
+                      <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                        Staff roles · {staffForBusiness(biz.id).length} active
+                      </h4>
+                    </div>
+                    {staffForBusiness(biz.id).length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {roleBreakdown(staffForBusiness(biz.id)).map(([roleName, info]) => (
+                          <Badge
+                            key={roleName}
+                            className={ROLE_COLORS[roleName as RoleName] ?? 'bg-slate-100 text-slate-600 border-slate-200'}
+                          >
+                            {info.display} · {info.count}
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-400">No active staff assigned to this business yet.</p>
+                    )}
+                  </div>
+
                   <div className="flex items-center justify-between mb-2">
                     <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                      Branches
+                      Branches · {branchesForBusiness(biz.id).length}
                     </h4>
                     <Button
                       variant="ghost"
@@ -123,36 +206,57 @@ export function BusinessBranchPage() {
                     </Button>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {branchesForBusiness(biz.id).map((branch) => (
+                    {branchesForBusiness(biz.id).map((branch) => {
+                      const members = staffForBranch(branch.id);
+                      return (
                       <div
                         key={branch.id}
-                        className="flex items-center justify-between bg-white rounded-xl border border-slate-200 px-4 py-3"
+                        className="bg-white rounded-xl border border-slate-200 px-4 py-3"
                       >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <MapPin size={16} className="text-slate-400 shrink-0" />
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium text-slate-900 truncate">
-                              {branch.name}
-                            </p>
-                            {branch.location && (
-                              <p className="text-xs text-slate-400 truncate">{branch.location}</p>
-                            )}
-                            {branch.opening_date && (
-                              <p className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5"><Calendar size={10}/>Since {branch.opening_date}</p>
-                            )}
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <MapPin size={16} className="text-slate-400 shrink-0" />
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-slate-900 truncate">
+                                {branch.name}
+                              </p>
+                              {branch.location && (
+                                <p className="text-xs text-slate-400 truncate">{branch.location}</p>
+                              )}
+                              {branch.opening_date && (
+                                <p className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5"><Calendar size={10}/>Since {branch.opening_date}</p>
+                              )}
+                            </div>
                           </div>
+                          <button
+                            onClick={() => {
+                              setEditingBranch(branch);
+                              setShowBranchModal(true);
+                            }}
+                            className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 shrink-0"
+                          >
+                            <Pencil size={14} />
+                          </button>
                         </div>
-                        <button
-                          onClick={() => {
-                            setEditingBranch(branch);
-                            setShowBranchModal(true);
-                          }}
-                          className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-                        >
-                          <Pencil size={14} />
-                        </button>
+                        <div className="mt-2.5 pt-2.5 border-t border-slate-100">
+                          {members.length > 0 ? (
+                            <div className="flex flex-wrap gap-1.5">
+                              {roleBreakdown(members).map(([roleName, info]) => (
+                                <Badge
+                                  key={roleName}
+                                  className={ROLE_COLORS[roleName as RoleName] ?? 'bg-slate-100 text-slate-600 border-slate-200'}
+                                >
+                                  {info.display} · {info.count}
+                                </Badge>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-[11px] text-slate-400">No staff assigned to this branch.</p>
+                          )}
+                        </div>
                       </div>
-                    ))}
+                      );
+                    })}
                     {branchesForBusiness(biz.id).length === 0 && (
                       <p className="text-sm text-slate-400 col-span-full py-4 text-center">
                         No branches yet. Click "Add Branch" to create one.
@@ -316,11 +420,20 @@ function BranchFormModal({
   const [error, setError] = useState<string | null>(null);
 
   // Load managers for this business
-  if (managers.length === 0) {
-    supabase.from('user_profiles').select('id, full_name, branch_id').eq('business_id', business.id).eq('is_active', true).then(({ data }) => {
-      if (data) setManagers(data as unknown as UserProfile[]);
-    });
-  }
+  useEffect(() => {
+    let cancelled = false;
+    supabase
+      .from('user_profiles')
+      .select('id, full_name, branch_id')
+      .eq('business_id', business.id)
+      .eq('is_active', true)
+      .then(({ data }) => {
+        if (!cancelled && data) setManagers(data as unknown as UserProfile[]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [business.id]);
 
   const handleSave = async () => {
     if (!name.trim()) {

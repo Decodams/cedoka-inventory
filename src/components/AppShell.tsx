@@ -17,6 +17,10 @@ import {
   ClipboardCheck,
   DollarSign,
   Wallet,
+  Layers,
+  MapPin,
+  Wrench,
+  GitBranch,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
@@ -37,31 +41,55 @@ export type PageKey =
   | 'expenses'
   | 'issues'
   | 'activities'
-  | 'audit';
+  | 'audit'
+  | 'departments'
+  | 'teams'
+  | 'customers'
+  | 'services'
+  | 'locations'
+  | 'workflows'
+  | 'report-types';
 
 interface NavItem {
   key: PageKey;
   label: string;
   icon: typeof LayoutDashboard;
   visible: (role: RoleName | null) => boolean;
+  section: 'operations' | 'catalog' | 'organization';
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, visible: () => true },
-  { key: 'reports', label: 'Weekly Reports', icon: ClipboardList, visible: () => true },
-  { key: 'reconciliation', label: 'Reconciliation', icon: ClipboardCheck, visible: (r) => r !== 'sales_person' },
-  { key: 'products', label: 'Products', icon: Package, visible: () => true },
-  { key: 'inventory', label: 'Inventory', icon: Package, visible: (r) => r !== 'sales_person' },
-  { key: 'transfers', label: 'Stock Transfers', icon: ArrowLeftRight, visible: (r) => r !== 'sales_person' },
-  { key: 'procurement', label: 'Procurement', icon: ShoppingCart, visible: (r) => r !== 'sales_person' },
-  { key: 'sales', label: 'Daily Sales', icon: DollarSign, visible: () => true },
-  { key: 'expenses', label: 'Expenses', icon: Wallet, visible: (r) => r !== 'sales_person' },
-  { key: 'issues', label: 'Issues & Challenges', icon: AlertTriangle, visible: () => true },
-  { key: 'activities', label: 'Daily Activities', icon: CalendarDays, visible: () => true },
-  { key: 'businesses', label: 'Businesses & Branches', icon: Building2, visible: (r) => r === 'super_admin' || r === 'admin' },
-  { key: 'users', label: 'User Management', icon: Users, visible: (r) => r === 'super_admin' || r === 'admin' || r === 'manager' },
-  { key: 'audit', label: 'Audit Log', icon: FileText, visible: (r) => r === 'super_admin' || r === 'admin' },
+  // Operations
+  { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, visible: () => true, section: 'operations' },
+  { key: 'reports', label: 'Weekly Reports', icon: ClipboardList, visible: () => true, section: 'operations' },
+  { key: 'reconciliation', label: 'Reconciliation', icon: ClipboardCheck, visible: (r) => r !== 'sales_person', section: 'operations' },
+  { key: 'inventory', label: 'Inventory', icon: Package, visible: (r) => r !== 'sales_person', section: 'operations' },
+  { key: 'transfers', label: 'Stock Transfers', icon: ArrowLeftRight, visible: (r) => r !== 'sales_person', section: 'operations' },
+  { key: 'procurement', label: 'Procurement', icon: ShoppingCart, visible: (r) => r !== 'sales_person', section: 'operations' },
+  { key: 'sales', label: 'Daily Sales', icon: DollarSign, visible: () => true, section: 'operations' },
+  { key: 'expenses', label: 'Expenses', icon: Wallet, visible: (r) => r !== 'sales_person', section: 'operations' },
+  { key: 'issues', label: 'Issues & Challenges', icon: AlertTriangle, visible: () => true, section: 'operations' },
+  { key: 'activities', label: 'Daily Activities', icon: CalendarDays, visible: () => true, section: 'operations' },
+  // Catalog
+  { key: 'products', label: 'Products', icon: Package, visible: () => true, section: 'catalog' },
+  { key: 'services', label: 'Services', icon: Wrench, visible: () => true, section: 'catalog' },
+  { key: 'customers', label: 'Customers', icon: Users, visible: () => true, section: 'catalog' },
+  // Organization
+  { key: 'businesses', label: 'Businesses & Branches', icon: Building2, visible: (r) => r === 'super_admin' || r === 'admin', section: 'organization' },
+  { key: 'departments', label: 'Departments', icon: Layers, visible: (r) => r === 'super_admin' || r === 'admin', section: 'organization' },
+  { key: 'teams', label: 'Teams', icon: Users, visible: (r) => r === 'super_admin' || r === 'admin', section: 'organization' },
+  { key: 'locations', label: 'Locations', icon: MapPin, visible: (r) => r === 'super_admin' || r === 'admin', section: 'organization' },
+  { key: 'workflows', label: 'Workflows', icon: GitBranch, visible: (r) => r === 'super_admin' || r === 'admin', section: 'organization' },
+  { key: 'report-types', label: 'Report Types', icon: FileText, visible: (r) => r === 'super_admin' || r === 'admin', section: 'organization' },
+  { key: 'users', label: 'User Management', icon: Users, visible: (r) => r === 'super_admin' || r === 'admin' || r === 'manager', section: 'organization' },
+  { key: 'audit', label: 'Audit Log', icon: FileText, visible: (r) => r === 'super_admin' || r === 'admin', section: 'organization' },
 ];
+
+const SECTION_LABELS: Record<NavItem['section'], string> = {
+  operations: 'Operations',
+  catalog: 'Catalog',
+  organization: 'Organization',
+};
 
 interface AppShellProps {
   currentPage: PageKey;
@@ -111,29 +139,41 @@ export function AppShell({ currentPage, onPageChange, children }: AppShellProps)
           </div>
           <button
             onClick={() => setSidebarOpen(false)}
+            aria-label="Close navigation"
             className="lg:hidden p-1.5 rounded-lg text-slate-400 hover:bg-slate-100"
           >
             <X size={20} />
           </button>
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
-          {visibleItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = currentPage === item.key;
+        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-4">
+          {(Object.keys(SECTION_LABELS) as Array<NavItem['section']>).map((section) => {
+            const items = visibleItems.filter((i) => i.section === section);
+            if (items.length === 0) return null;
             return (
-              <button
-                key={item.key}
-                onClick={() => handlePageChange(item.key)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                  isActive
-                    ? 'bg-slate-900 text-white shadow-sm'
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                }`}
-              >
-                <Icon size={18} className={isActive ? 'text-white' : 'text-slate-400'} />
-                {item.label}
-              </button>
+              <div key={section}>
+                <p className="px-3 mb-1.5 text-[10px] font-semibold tracking-widest text-slate-400 uppercase">{SECTION_LABELS[section]}</p>
+                <div className="space-y-0.5">
+                  {items.map((item) => {
+                    const Icon = item.icon;
+                    const isActive = currentPage === item.key;
+                    return (
+                      <button
+                        key={item.key}
+                        onClick={() => handlePageChange(item.key)}
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                          isActive
+                            ? 'bg-slate-900 text-white shadow-sm'
+                            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                        }`}
+                      >
+                        <Icon size={18} className={isActive ? 'text-white' : 'text-slate-400'} />
+                        <span className="truncate">{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             );
           })}
         </nav>
@@ -156,6 +196,7 @@ export function AppShell({ currentPage, onPageChange, children }: AppShellProps)
           <div className="flex items-center gap-3">
             <button
               onClick={() => setSidebarOpen(true)}
+              aria-label="Open navigation"
               className="lg:hidden p-2 rounded-lg text-slate-500 hover:bg-slate-100"
             >
               <Menu size={20} />
@@ -168,6 +209,9 @@ export function AppShell({ currentPage, onPageChange, children }: AppShellProps)
           <div className="relative">
             <button
               onClick={() => setUserMenuOpen(!userMenuOpen)}
+              aria-expanded={userMenuOpen}
+              aria-haspopup="menu"
+              aria-label={`${user?.full_name ?? 'User'} account menu`}
               className="flex items-center gap-2.5 pl-2 pr-3 py-1.5 rounded-lg hover:bg-slate-100 transition-colors"
             >
               <div className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center text-sm font-semibold">

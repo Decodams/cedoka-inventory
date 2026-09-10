@@ -8,16 +8,15 @@ import { Modal } from '@/components/ui/Modal';
 import { Input, Select, Textarea } from '@/components/ui/Form';
 import { Badge } from '@/components/ui/Badge';
 import { formatDate } from '@/lib/dateUtils';
-import { isAtLeast, hasRole } from '@/lib/rbac';
+import { isAtLeast } from '@/lib/rbac';
 import { ACTIVITY_CATEGORY_LABELS } from '@/lib/statusStyles';
-import type { DailyActivity, Business, Branch, ActivityCategory } from '@/types/database';
+import type { DailyActivity, Branch, ActivityCategory } from '@/types/database';
 
 export function ActivitiesPage() {
   const { user } = useAuth();
   const [showModal, setShowModal] = useState(false);
   const [search, setSearch] = useState('');
   const [filterBranch, setFilterBranch] = useState('all');
-  const isExecutive = hasRole(user, 'super_admin');
   const isBusinessLevel = isAtLeast(user, 'admin');
 
   const { data: branches } = useSupabaseQuery<Branch[]>(
@@ -152,7 +151,7 @@ function ActivityModal({
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [branchId, setBranchId] = useState(currentUser?.branch_id ?? '');
-  const [businessId, setBusinessId] = useState(currentUser?.business_id ?? '');
+  const [businessId] = useState(currentUser?.business_id ?? '');
   const [activityDate, setActivityDate] = useState(new Date().toISOString().split('T')[0]);
   const [category, setCategory] = useState<ActivityCategory>('other');
   const [requiresFollowUp, setRequiresFollowUp] = useState(false);

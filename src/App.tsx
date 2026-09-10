@@ -18,6 +18,13 @@ const ProcurementPage = lazy(() => import('@/pages/ProcurementPage').then(m => (
 const SalesPage = lazy(() => import('@/pages/SalesPage').then(m => ({ default: m.SalesPage })));
 const ExpensesPage = lazy(() => import('@/pages/ExpensesPage').then(m => ({ default: m.ExpensesPage })));
 const AuditLogPage = lazy(() => import('@/pages/AuditLogPage').then(m => ({ default: m.AuditLogPage })));
+const DepartmentsPage = lazy(() => import('@/pages/DepartmentsPage').then(m => ({ default: m.DepartmentsPage })));
+const TeamsPage = lazy(() => import('@/pages/TeamsPage').then(m => ({ default: m.TeamsPage })));
+const CustomersPage = lazy(() => import('@/pages/CustomersPage').then(m => ({ default: m.CustomersPage })));
+const ServicesPage = lazy(() => import('@/pages/ServicesPage').then(m => ({ default: m.ServicesPage })));
+const LocationsPage = lazy(() => import('@/pages/LocationsPage').then(m => ({ default: m.LocationsPage })));
+const WorkflowsPage = lazy(() => import('@/pages/WorkflowsPage').then(m => ({ default: m.WorkflowsPage })));
+const ReportTypesPage = lazy(() => import('@/pages/ReportTypesPage').then(m => ({ default: m.ReportTypesPage })));
 
 function AppContent() {
   const { user, loading } = useAuth();
@@ -63,6 +70,20 @@ function AppContent() {
         return <SalesPage />;
       case 'expenses':
         return <ExpensesPage />;
+      case 'departments':
+        return <DepartmentsPage />;
+      case 'teams':
+        return <TeamsPage />;
+      case 'customers':
+        return <CustomersPage />;
+      case 'services':
+        return <ServicesPage />;
+      case 'locations':
+        return <LocationsPage />;
+      case 'workflows':
+        return <WorkflowsPage />;
+      case 'report-types':
+        return <ReportTypesPage />;
       case 'audit':
         return <AuditLogPage />;
       default:
