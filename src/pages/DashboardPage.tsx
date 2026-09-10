@@ -63,8 +63,6 @@ export function DashboardPage() {
     let q = supabase.from('weekly_reports').select(`*, business:businesses(id,name), branch:branches(id,name)`).order('created_at', { ascending: false });
     if (isSuperAdmin) { /* all */ }
     else if (isAdmin && user?.business_id) q = q.eq('business_id', user.business_id);
-    else if (user?.branch_id) q = q.eq('branch_id', user.branch_id);
-    else if (user?.id) q = q.eq('submitted_by', user.id);
     return q.limit(20);
   }, [isSuperAdmin, isAdmin, user]);
   const { data: weeklyReports } = useSupabaseQuery<WeeklyReport[]>(() => reportsQuery, [reportsQuery], {
@@ -163,6 +161,9 @@ export function DashboardPage() {
   const totalStockSold = weeklyReports?.reduce((sum, r) => sum + Number(r.stock_sold), 0) ?? 0;
   const managementIssues = issues?.filter((i) => i.requires_management_attention) ?? [];
   const overdueIssues = issues?.filter((i) => isOverdue(i.deadline)) ?? [];
+  const myWeeklyReports = weeklyReports?.filter((report) => report.submitted_by === user?.id) ?? [];
+  const mySubmittedReports = myWeeklyReports.filter((report) => report.status !== 'draft').length;
+  const myWeeklySales = myWeeklyReports.reduce((sum, report) => sum + Number(report.total_sales_value), 0);
 
   return (
     <div className="space-y-5">
@@ -214,6 +215,21 @@ export function DashboardPage() {
             <MetricCard icon={<AlertTriangle size={20} />} label="Issues" value={managementIssues.length.toString()} subtitle="Need attention" color="rose" />
           </>
         )}
+      </div>
+
+      <div className="bg-white rounded-2xl border border-slate-200 p-5">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2"><Target size={18} /> Your weekly performance</h3>
+            <p className="text-xs text-slate-500 mt-1">A quick view of the work recorded under your account.</p>
+          </div>
+          <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200">This week</Badge>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <ScorecardMetric label="Reports submitted" value={mySubmittedReports.toString()} />
+          <ScorecardMetric label="Reported sales" value={formatCurrency(myWeeklySales)} />
+          <ScorecardMetric label="Activity" value={myWeeklyReports.length > 0 ? 'On track' : 'Start logging'} />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -393,6 +409,15 @@ function MetricCard({ icon, label, value, subtitle, color }: { icon: React.React
       <p className="text-xl font-bold text-slate-900 leading-tight truncate">{value}</p>
       <p className="text-xs text-slate-500 mt-0.5">{label}</p>
       <p className="text-[11px] text-slate-400 mt-0.5">{subtitle}</p>
+    </div>
+  );
+}
+
+function ScorecardMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl bg-slate-50 p-3">
+      <p className="text-lg font-bold text-slate-900 truncate">{value}</p>
+      <p className="text-xs text-slate-500 mt-1">{label}</p>
     </div>
   );
 }

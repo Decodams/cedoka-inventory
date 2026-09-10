@@ -185,6 +185,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession(null);
   }, []);
 
+  useEffect(() => {
+    if (!session?.user?.id) return;
+
+    let timeoutId: number | undefined;
+    const resetInactivityTimer = () => {
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+      timeoutId = window.setTimeout(() => {
+        void signOut();
+      }, 120_000);
+    };
+    const activityEvents = ['mousedown', 'keydown', 'mousemove', 'scroll', 'touchstart'];
+    activityEvents.forEach((event) => window.addEventListener(event, resetInactivityTimer));
+    resetInactivityTimer();
+
+    return () => {
+      activityEvents.forEach((event) => window.removeEventListener(event, resetInactivityTimer));
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+    };
+  }, [session?.user?.id, signOut]);
+
   return (
     <AuthContext.Provider value={{ session, user, roles, loading, signIn, registerStaff, signOut, refreshUser }}>
       {children}

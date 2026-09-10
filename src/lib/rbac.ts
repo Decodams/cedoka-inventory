@@ -1,5 +1,11 @@
 import type { RoleName, UserProfile } from '@/types/database';
 
+export function hasRole(user: UserProfile | null, ...roles: RoleName[]): boolean {
+  if (!user?.role) return false;
+  const userRoleName = user.role.name;
+  return roles.some((r) => r === userRoleName);
+}
+
 export const ROLE_HIERARCHY: Record<RoleName, number> = {
   super_admin: 4,
   admin: 3,
@@ -26,10 +32,30 @@ export function getRoleName(user: UserProfile | null): RoleName | null {
   return user.role.name;
 }
 
-export function hasRole(user: UserProfile | null, ...roles: RoleName[]): boolean {
-  const roleName = getRoleName(user);
-  if (!roleName) return false;
-  return roles.includes(roleName);
+export function getReportees(user: UserProfile | null): string[] {
+  if (!user?.id) return [];
+  const result = [user.id];
+  // placeholder: real implementation would recurse via manager_id
+  return result;
+}
+
+export function canUserBeSeenBy(actor: UserProfile | null, target: UserProfile | null, minRole: RoleName): boolean {
+  if (!actor || !target) return false;
+  if (hasRole(actor, 'super_admin')) return true;
+  if (!actor.role) return false;
+  if (hasRole(actor, minRole)) return true;
+  return false;
+}
+
+// Helper: check if actor can view target's data based on role hierarchy
+export function hierarchicalCanView(actor: UserProfile | null, target: UserProfile | null): boolean {
+  if (!actor || !target) return false;
+  if (hasRole(actor, 'super_admin')) return true;
+  if (!actor.role || !target.role) return false;
+  // actor must be at least one role level above target
+  const actorLevel = ROLE_HIERARCHY[actor.role.name];
+  const targetLevel = ROLE_HIERARCHY[target.role.name];
+  return actorLevel > targetLevel;
 }
 
 export function isAtLeast(user: UserProfile | null, minRole: RoleName): boolean {

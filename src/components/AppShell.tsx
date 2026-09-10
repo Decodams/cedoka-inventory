@@ -1,4 +1,4 @@
-import { type ReactNode } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import {
   LayoutDashboard,
   Building2,
@@ -22,8 +22,8 @@ import {
   Wrench,
   GitBranch,
 } from 'lucide-react';
-import { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/lib/supabaseClient';
 import { ROLE_COLORS } from '@/lib/rbac';
 import type { RoleName } from '@/types/database';
 
@@ -101,9 +101,33 @@ export function AppShell({ currentPage, onPageChange, children }: AppShellProps)
   const { user, signOut } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [activityPluginEnabled, setActivityPluginEnabled] = useState(true);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    supabase
+      .from('user_dashboard_plugins')
+      .select('is_enabled')
+      .eq('user_id', user.id)
+      .eq('plugin_key', 'activity_reports')
+      .maybeSingle()
+      .then(({ data }) => setActivityPluginEnabled(data?.is_enabled ?? true));
+  }, [user?.id]);
+
+  const toggleActivityPlugin = async () => {
+    const nextEnabled = !activityPluginEnabled;
+    setActivityPluginEnabled(nextEnabled);
+    await supabase.from('user_dashboard_plugins').upsert({
+      user_id: user?.id,
+      plugin_key: 'activity_reports',
+      is_enabled: nextEnabled,
+      updated_at: new Date().toISOString(),
+    });
+    if (!nextEnabled && currentPage === 'activities') onPageChange('dashboard');
+  };
 
   const roleName = user?.role?.name ?? null;
-  const visibleItems = NAV_ITEMS.filter((item) => item.visible(roleName));
+  const visibleItems = NAV_ITEMS.filter((item) => item.visible(roleName) && (item.key !== 'activities' || activityPluginEnabled));
   const currentItem = NAV_ITEMS.find((item) => item.key === currentPage);
 
   const handlePageChange = (page: PageKey) => {
@@ -246,6 +270,15 @@ export function AppShell({ currentPage, onPageChange, children }: AppShellProps)
                       </span>
                     )}
                   </div>
+                  <button
+                    onClick={toggleActivityPlugin}
+                    className="w-full flex items-center justify-between gap-2 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
+                  >
+                    <span>Activity reports</span>
+                    <span className={`text-xs font-medium ${activityPluginEnabled ? 'text-emerald-600' : 'text-slate-400'}`}>
+                      {activityPluginEnabled ? 'On' : 'Off'}
+                    </span>
+                  </button>
                   <button
                     onClick={() => {
                       setUserMenuOpen(false);

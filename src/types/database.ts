@@ -96,6 +96,7 @@ export interface UserProfile {
   role_id: string;
   business_id: string | null;
   branch_id: string | null;
+  manager_id: string | null;  // NEW: for hierarchical visibility
   is_active: boolean;
   approval_status: 'pending' | 'approved' | 'rejected';
   approval_reason: string | null;

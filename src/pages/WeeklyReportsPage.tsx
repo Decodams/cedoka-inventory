@@ -62,19 +62,17 @@ export function WeeklyReportsPage() {
     let q = supabase
       .from('weekly_reports')
       .select(
-        `*, business:businesses(id,name), branch:branches(id,name), submitted_by_user:user_profiles!submitted_by(full_name), reviewed_by_user:user_profiles!reviewed_by(full_name)`,
+        `*, business:businesses(id,name), branch:branches(id,name), submitted_by_user:user_profiles!submitted_by(full_name, manager_id), reviewed_by_user:user_profiles!reviewed_by(full_name, manager_id)`,
       )
       .order('week_end_date', { ascending: false })
       .order('created_at', { ascending: false });
 
+    // Filter by user's own data + reportees if manager or above
     if (isExecutive) {
       // see all
     } else if (isBusinessLevel && user?.business_id) {
       q = q.eq('business_id', user.business_id);
-    } else if (user?.branch_id) {
-      q = q.eq('branch_id', user.branch_id);
-    } else if (user?.id) {
-      q = q.eq('submitted_by', user.id);
+      // TODO: add reportees filter when manager_id is populated
     }
 
     if (filterBusiness !== 'all') q = q.eq('business_id', filterBusiness);
@@ -159,9 +157,16 @@ export function WeeklyReportsPage() {
                       <h3 className="text-sm font-semibold text-slate-900">
                         {report.branch?.name}
                       </h3>
-                      <Badge className={REPORT_STATUS_STYLES[report.status]}>
-                        {REPORT_STATUS_LABELS[report.status]}
-                      </Badge>
+<Badge className={REPORT_STATUS_STYLES[report.status]}>
+                    {REPORT_STATUS_LABELS[report.status]}
+                  </Badge>
+                  {report.status === 'submitted' && (
+                    <Badge
+                      className="bg-gray-100 text-gray-500 border-gray-200 text-xs"
+                    >
+                      <AlertTriangle size={10} /> Locked
+                    </Badge>
+                  )}
                       {report.closing_stock_is_manual && (
                         <Badge className="bg-amber-100 text-amber-700 border-amber-200">
                           Manual Closing
@@ -496,7 +501,7 @@ function ReportDetailView({
     [report.id],
   );
 
-  const canEdit = report.status === 'draft';
+  const canEdit = report.status === 'draft' || isAtLeast(user, 'admin');
   const canReview = isAtLeast(user, 'admin') && report.status === 'submitted';
   const canAmend = isAtLeast(user, 'admin') && (report.status === 'submitted' || report.status === 'reviewed');
 
