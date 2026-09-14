@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { UserPlus, Users, Power, Mail, MapPin, Check, XCircle } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSupabaseQuery, supabase } from '@/hooks/useSupabaseQuery';
@@ -17,6 +17,10 @@ export function UserManagementPage() {
   const [filterRole, setFilterRole] = useState<string>('all');
   const [success, setSuccess] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const pageSize = 30;
+
+  useEffect(() => { setPage(1); }, [search, filterRole]);
 
   const handleUserStatus = async (userId: string, action: 'approve' | 'reject' | 'activate' | 'deactivate') => {
     setActionError(null);
@@ -30,13 +34,17 @@ export function UserManagementPage() {
   };
 
   const { data: profiles, loading, error, refetch } = useSupabaseQuery<UserProfile[]>(
-    () =>
-      supabase
+    () => {
+      const from = (page - 1) * pageSize;
+      const to = page * pageSize - 1;
+      return supabase
         .from('user_profiles')
-        .select(`*, role:roles(id,name,display_name), business:businesses!user_profiles_business_id_fkey(id,name), branch:branches!user_profiles_branch_id_fkey(id,name)`)
-        .order('created_at', { ascending: false }),
-    [],
-    { cacheKey: `users:list:${user?.id ?? 'anon'}` },
+        .select(`*, role:roles(id,name,display_name), business:businesses!user_profiles_business_id_fkey(id,name), branch:branches!user_profiles_branch_id_fkey(id,name)`, { count: 'exact' })
+        .order('created_at', { ascending: false })
+        .range(from, to);
+    },
+    [page, pageSize],
+    { cacheKey: `users:list:${user?.id ?? 'anon'}:${page}:${pageSize}` },
   );
 
   const { data: businesses } = useSupabaseQuery<Business[]>(
@@ -111,7 +119,7 @@ export function UserManagementPage() {
         </Select>
       </div>
 
-      {filteredProfiles.length > 0 ? (
+{filteredProfiles.length > 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -185,7 +193,7 @@ export function UserManagementPage() {
                             : 'bg-gray-100 text-gray-500 border-gray-200'
                         }
                       >
-                        {p.approval_status === 'pending' ? 'Awaiting approval' : p.approval_status === 'rejected' ? 'Rejected' : p.is_active ? 'Active' : 'Inactive'}
+                          {p.approval_status === 'pending' ? 'Awaiting approval' : p.approval_status === 'rejected' ? 'Rejected' : p.is_active ? 'Active' : 'Inactive'}
                       </Badge>
                     </td>
                     <td className="px-5 py-3 text-right">
@@ -202,6 +210,20 @@ export function UserManagementPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+          <div className="p-4 border-t border-slate-100">
+            <div className="flex justify-between items-center text-sm text-slate-500">
+              <span>Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, filteredProfiles.length)} of {filteredProfiles.length} users</span>
+              <span>Page {page} of {Math.ceil(filteredProfiles.length / pageSize)}</span>
+            </div>
+            <div className="flex gap-2 justify-center">
+              <Button variant="ghost" onClick={()=>{setPage(p=> Math.max(1, p - 1));}} disabled={page===1}>
+                Prev
+              </Button>
+              <Button variant="ghost" onClick={()=>{setPage(p=> Math.min(Math.ceil(filteredProfiles.length / pageSize), p + 1));}} disabled={page>=Math.ceil(filteredProfiles.length / pageSize)}>
+                Next
+              </Button>
+            </div>
           </div>
         </div>
       ) : (
@@ -254,20 +276,34 @@ function CreateUserModal({
   const [fullName, setFullName] = useState('');
   const [roleId, setRoleId] = useState('');
   const [businessId, setBusinessId] = useState('');
-  const [branchId, setBranchId] = useState('');
+  const [branchIds, setBranchIds] = useState<string[]>([]);  // NEW: array of selected branch IDs
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const availableRoles = roles.filter((r) => {
     if (hasRole(currentUser, 'super_admin')) return r.name === 'super_admin';
+    if (hasRole(currentUser, 'admin')) return ['admin', 'manager', 'sales_person', 'supervisor'].includes(r.name);
+    if (hasRole(currentUser, 'manager')) return ['sales_person', 'supervisor'].includes(r.name);
     return canCreateRole(currentUser, r.name as RoleName);
   });
 
-  const availableBusinesses = useMemo(() => {
-    if (hasRole(currentUser, 'super_admin')) return businesses;
-    return businesses.filter((b) => b.id === currentUser?.business_id);
-  }, [businesses, currentUser]);
+  // Auto-detect initial role based on current user's role
+  const autoDetectedRoleId = useMemo(() => {
+    if (hasRole(currentUser, 'super_admin')) return roles.find((r) => r.name === 'super_admin')?.id;
+    if (hasRole(currentUser, 'admin')) return roles.find((r) => r.name === 'admin')?.id;
+    if (hasRole(currentUser, 'manager')) return roles.find((r) => r.name === 'sales_person')?.id;
+    return '';
+  }, [currentUser, roles]);
+  void autoDetectedRoleId;
 
+  // Auto-detect initial business based on current user's business
+  const autoDetectedBusinessId = useMemo(() => {
+    if (hasRole(currentUser, 'super_admin')) return '';
+    return currentUser?.business_id || '';
+  }, [currentUser]);
+  void autoDetectedBusinessId;
+
+  // Determine which branches the current user can assign
   const availableBranches = useMemo(() => {
     if (!businessId) return [];
     if (hasRole(currentUser, 'super_admin')) return branches.filter((b) => b.business_id === businessId);
@@ -275,6 +311,11 @@ function CreateUserModal({
     if (hasRole(currentUser, 'manager')) return branches.filter((b) => b.id === currentUser?.branch_id);
     return [];
   }, [branches, businessId, currentUser]);
+
+  const availableBusinesses = useMemo(() => {
+    if (hasRole(currentUser, 'super_admin')) return businesses;
+    return businesses.filter((b) => b.id === currentUser?.business_id);
+  }, [businesses, currentUser]);
 
   const selectedRole = roles.find((r) => r.id === roleId);
   const needsBusiness = selectedRole && selectedRole.name !== 'super_admin';
@@ -312,7 +353,7 @@ function CreateUserModal({
         p_full_name: fullName.trim(),
         p_role_name: selectedRoleName,
         p_business_id: needsBusiness ? businessId || null : null,
-        p_branch_id: needsBranch ? branchId || null : null,
+        p_branch_ids: needsBranch ? branchIds.length > 0 ? branchIds : [] : [],
       },
     });
 
@@ -356,7 +397,7 @@ function CreateUserModal({
           onChange={(e) => {
             setRoleId(e.target.value);
             setBusinessId('');
-            setBranchId('');
+            setBranchIds([]);
           }}
         >
           <option value="">{hasRole(currentUser, 'super_admin') && superAdminCount >= 2 ? 'Super Admin limit reached' : 'Select a role...'}</option>
@@ -372,7 +413,7 @@ function CreateUserModal({
             value={businessId}
             onChange={(e) => {
               setBusinessId(e.target.value);
-              setBranchId('');
+              setBranchIds([]);
             }}
           >
             <option value="">Select a business...</option>
@@ -384,18 +425,64 @@ function CreateUserModal({
           </Select>
         )}
         {needsBranch && businessId && (
-          <Select
-            label="Branch"
-            value={branchId}
-            onChange={(e) => setBranchId(e.target.value)}
-          >
-            <option value="">Select a branch...</option>
-            {availableBranches.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-              </option>
-            ))}
-          </Select>
+          <div className="space-y-2">
+            <span className="cursor-pointer select-none">
+              <span className="flex items-center gap-1">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-4 w-4 text-rose-600"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <circle cx="9" cy="21" r="1"></circle>
+                  <circle cx="20" cy="21" r="1"></circle>
+                  <line x1="1" y1="8" x2="22" y2="8"></line>
+                  <line x1="1" y1="12" x2="22" y2="12"></line>
+                  <line x1="1" y1="16" x2="22" y2="16"></line>
+                  <polyline points="8 21 12 16 16 21"></polyline>
+                </svg>
+                Branches
+              </span>
+            </span>
+            <div className="flex flex-wrap gap-2">
+              {availableBranches.map((b) => (
+                <div
+                  key={b.id}
+                  className={`
+                    selected-chip
+                    inline-flex items-center gap-1.5
+                    rounded-full px-2.5 py-0.5 text-xs font-medium
+                    ${branchIds.includes(b.id) ? 'bg-rose-100 text-rose-600' : 'border border-rose-300 text-rose-700 hover:bg-rose-50'}
+                  `}
+                  onClick={() => {
+                    setBranchIds((prev) => (branchIds.includes(b.id) ? prev.filter((id) => id !== b.id) : [...prev, b.id]));
+                  }}
+                >
+                  {b.name}
+                </div>
+              ))}
+              {branchIds.length > 0 && (
+                <div
+                  className="selected-chip inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium bg-rose-200 text-rose-700"
+                  onClick={() => setBranchIds([])}
+                >
+                  Clear all
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        {needsBranch && businessId && (
+          <input
+            type="hidden"
+            name="branch_ids"
+            value={JSON.stringify(branchIds)}
+            id="branch_ids_hidden"
+          />
         )}
         {error && <p className="text-sm text-rose-600 px-1">{error}</p>}
         <div className="flex justify-end gap-3 pt-2">

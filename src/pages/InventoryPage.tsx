@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Package, Search, AlertTriangle, TrendingDown, TrendingUp, History, Plus } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSupabaseQuery, supabase } from '@/hooks/useSupabaseQuery';
@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/Badge';
 import { formatNumber, formatDateTime } from '@/lib/dateUtils';
 import { isAtLeast } from '@/lib/rbac';
 import { MOVEMENT_TYPE_STYLES, MOVEMENT_TYPE_LABELS, MOVEMENT_TYPE_SIGNS } from '@/lib/statusStyles';
+import { logAudit } from '@/lib/audit';
 import type { InventoryBalance, InventoryTransaction, Branch, MovementType, Product } from '@/types/database';
 
 export function InventoryPage() {
@@ -20,6 +21,10 @@ export function InventoryPage() {
   const [showMovementModal, setShowMovementModal] = useState(false);
   const canManage = isAtLeast(user, 'manager');
   const isBusinessLevel = isAtLeast(user, 'admin');
+  const [page, setPage] = useState(1);
+  const pageSize = 30;
+
+  useEffect(() => { setPage(1); }, [search, filterBranch, tab]);
 
   const { data: branches } = useSupabaseQuery<Branch[]>(
     () => supabase.from('branches').select('*').eq('is_active', true).order('name'),
@@ -34,14 +39,17 @@ export function InventoryPage() {
   );
 
   const balancesQuery = useMemo(() => {
+    const from = (page - 1) * pageSize;
+    const to = page * pageSize - 1;
     let q = supabase
       .from('inventory_balances')
-      .select(`*, product:products(id,name,sku,unit), branch:branches(id,name)`)
-      .order('updated_at', { ascending: false });
+      .select(`*, product:products(id,name,sku,unit), branch:branches(id,name)`, { count: 'exact' })
+      .order('updated_at', { ascending: false })
+      .range(from, to);
     if (!isBusinessLevel && user?.branch_id) q = q.eq('branch_id', user.branch_id);
     if (filterBranch !== 'all') q = q.eq('branch_id', filterBranch);
     return q;
-  }, [isBusinessLevel, user, filterBranch]);
+  }, [isBusinessLevel, user, filterBranch, page, pageSize]);
 
   const { data: balances, loading: loadingBalances, error: errorBalances, refetch: refetchBalances } =
     useSupabaseQuery<InventoryBalance[]>(
@@ -51,15 +59,17 @@ export function InventoryPage() {
     );
 
   const ledgerQuery = useMemo(() => {
+    const from = (page - 1) * pageSize;
+    const to = page * pageSize - 1;
     let q = supabase
       .from('inventory_transactions')
-      .select(`*, product:products(id,name,sku), branch:branches(id,name), actor:user_profiles!actor_id(full_name)`)
+      .select(`*, product:products(id,name,sku), branch:branches(id,name), actor:user_profiles!actor_id(full_name)`, { count: 'exact' })
       .order('transaction_date', { ascending: false })
-      .limit(100);
+      .range(from, to);
     if (!isBusinessLevel && user?.branch_id) q = q.eq('branch_id', user.branch_id);
     if (filterBranch !== 'all') q = q.eq('branch_id', filterBranch);
     return q;
-  }, [isBusinessLevel, user, filterBranch]);
+  }, [isBusinessLevel, user, filterBranch, page, pageSize]);
 
   const { data: transactions, loading: loadingTxns, error: errorTxns, refetch: refetchTxns } =
     useSupabaseQuery<InventoryTransaction[]>(
@@ -195,6 +205,20 @@ export function InventoryPage() {
                 </tbody>
               </table>
             </div>
+            <div className="p-4 border-t border-slate-100">
+              <div className="flex justify-between items-center text-sm text-slate-500">
+                <span>Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, filteredBalances.length)} of {filteredBalances.length} balances</span>
+                <span>Page {page} of {Math.ceil(filteredBalances.length / pageSize)}</span>
+              </div>
+              <div className="flex gap-2 justify-center">
+                <Button variant="ghost" onClick={()=>{setPage(p=> Math.max(1, p - 1));}} disabled={page===1}>
+                  Prev
+                </Button>
+                <Button variant="ghost" onClick={()=>{setPage(p=> Math.min(Math.ceil(filteredBalances.length / pageSize), p + 1));}} disabled={page>=Math.ceil(filteredBalances.length / pageSize)}>
+                  Next
+                </Button>
+              </div>
+            </div>
           </div>
         ) : (
           <EmptyState
@@ -247,6 +271,20 @@ export function InventoryPage() {
                   })}
                 </tbody>
               </table>
+            </div>
+            <div className="p-4 border-t border-slate-100">
+              <div className="flex justify-between items-center text-sm text-slate-500">
+                <span>Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, filteredTxns.length)} of {filteredTxns.length} movements</span>
+                <span>Page {page} of {Math.ceil(filteredTxns.length / pageSize)}</span>
+              </div>
+              <div className="flex gap-2 justify-center">
+                <Button variant="ghost" onClick={()=>{setPage(p=> Math.max(1, p - 1));}} disabled={page===1}>
+                  Prev
+                </Button>
+                <Button variant="ghost" onClick={()=>{setPage(p=> Math.min(Math.ceil(filteredTxns.length / pageSize), p + 1));}} disabled={page>=Math.ceil(filteredTxns.length / pageSize)}>
+                  Next
+                </Button>
+              </div>
             </div>
           </div>
         ) : (
@@ -324,6 +362,13 @@ function MovementModal({
       setSaving(false);
       return;
     }
+    await logAudit(`inventory.${movementType}`, 'inventory_movements', null, {
+      product_id: productId,
+      branch_id: branchId,
+      movement_type: movementType,
+      quantity: Math.abs(qty),
+      reason: reason.trim() || null,
+    });
     setSaving(false);
     onSaved();
   };

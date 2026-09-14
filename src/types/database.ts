@@ -1,4 +1,19 @@
-export type RoleName = 'super_admin' | 'admin' | 'manager' | 'sales_person';
+export type ExtendedRoleName = 
+  | 'super_admin'
+  | 'admin' 
+  | 'manager'
+  | 'sales_person'
+  | 'supervisor'
+  | 'accountant'
+  | 'inventory_officer'
+  | 'transport_officer'
+  | 'auditor';
+
+export type RoleName = 
+  | 'super_admin'
+  | 'admin' 
+  | 'manager'
+  | 'sales_person';
 
 export type ReportStatus = 'draft' | 'submitted' | 'reviewed' | 'amended';
 

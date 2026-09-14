@@ -18,13 +18,12 @@ import {
   DollarSign,
   Wallet,
   Layers,
-  MapPin,
   Wrench,
   GitBranch,
+  MapPin,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabaseClient';
-import { ROLE_COLORS } from '@/lib/rbac';
 import type { RoleName } from '@/types/database';
 import logo from '@/logo.jpeg';
 
@@ -42,13 +41,13 @@ export type PageKey =
   | 'expenses'
   | 'issues'
   | 'activities'
-  | 'audit'
   | 'departments'
   | 'teams'
   | 'customers'
   | 'services'
   | 'locations'
-  | 'workflows';
+  | 'workflows'
+  | 'audit';
 
 interface NavItem {
   key: PageKey;
@@ -142,7 +141,7 @@ export function AppShell({ currentPage, onPageChange, children }: AppShellProps)
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 bg-slate-900/40 z-30 lg:hidden"
+          className="fixed inset-0 bg-slate-900 z-30 lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
@@ -189,7 +188,7 @@ export function AppShell({ currentPage, onPageChange, children }: AppShellProps)
                         onClick={() => handlePageChange(item.key)}
                         className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
                           isActive
-                            ? 'bg-slate-900 text-white shadow-sm'
+                            ? 'bg-slate-900 text-white'
                             : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                         }`}
                       >
@@ -207,7 +206,7 @@ export function AppShell({ currentPage, onPageChange, children }: AppShellProps)
         <div className="px-3 py-4 border-t border-slate-100">
           <button
             onClick={signOut}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-500 hover:bg-rose-50 hover:text-rose-600 transition-all"
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-500 hover:bg-slate-100 transition-all"
           >
             <LogOut size={18} />
             Sign Out
@@ -218,7 +217,7 @@ export function AppShell({ currentPage, onPageChange, children }: AppShellProps)
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top bar */}
-        <header className="sticky top-0 z-20 bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 lg:px-8 py-3.5 flex items-center justify-between">
+        <header className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 lg:px-8 py-3.5 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button
               onClick={() => setSidebarOpen(true)}
@@ -260,16 +259,16 @@ export function AppShell({ currentPage, onPageChange, children }: AppShellProps)
                   className="fixed inset-0 z-30"
                   onClick={() => setUserMenuOpen(false)}
                 />
-                <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-xl shadow-lg border border-slate-200 py-2 z-40">
+                <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-xl border border-slate-200 py-2 z-40">
                   <div className="px-4 py-2 border-b border-slate-100">
                     <p className="text-sm font-semibold text-slate-900">{user?.full_name}</p>
                     <p className="text-xs text-slate-400">{user?.email}</p>
                     {roleName && (
                       <span
-                        className={`inline-flex mt-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium border ${ROLE_COLORS[roleName]}`}
-                      >
+                        className={`inline-flex mt-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium border-slate-300`}
+                        >
                         {user?.role?.display_name}
-                      </span>
+                        </span>
                     )}
                   </div>
                   <button

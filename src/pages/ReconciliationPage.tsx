@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/Badge';
 import { formatNumber, formatDate, getWeekStart, getWeekEnd, toDateString } from '@/lib/dateUtils';
 import { isAtLeast, hasRole } from '@/lib/rbac';
 import { PERIOD_STATUS_STYLES, PERIOD_STATUS_LABELS, VARIANCE_STATUS_STYLES } from '@/lib/statusStyles';
+import { logAudit } from '@/lib/audit';
 import type { InventoryPeriod, InventoryPeriodLine, StockVariance, Branch, Product, Business } from '@/types/database';
 
 /* ——— Main Page ——— */
@@ -228,6 +229,7 @@ function PeriodDetailView({ period, onBack, onRefresh }: { period: InventoryPeri
     setActionError(null);
     const { error: updateError } = await supabase.from('inventory_periods').update({ status, approved_by: status==='approved'?user?.id:null, approved_at: status==='approved'?new Date().toISOString():null }).eq('id', period.id);
     if (updateError) { setActionError(`Could not update period: ${updateError.message}`); return; }
+    await logAudit(`period.${status}`, 'inventory_periods', period.id, { branch_id: period.branch_id });
     onRefresh(); onBack();
   };
 
@@ -240,6 +242,7 @@ function PeriodDetailView({ period, onBack, onRefresh }: { period: InventoryPeri
   const handleCount = async (line: InventoryPeriodLine, val: number) => {
     const { error: countError } = await supabase.from('inventory_period_lines').update({ physical_closing_quantity: val, counted_by: user?.id, counted_at: new Date().toISOString() }).eq('id', line.id);
     if (countError) { setActionError(`Could not save physical count: ${countError.message}`); return; }
+    await logAudit('period.physical_count', 'inventory_period_lines', line.id, { product_id: line.product_id, quantity: val });
     // auto-create variance if mismatch
     const expected = line.expected_closing_quantity;
     const diff = val - expected;

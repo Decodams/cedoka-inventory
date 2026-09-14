@@ -1,0 +1,9 @@
+ALTER TABLE public.roles ADD COLUMN IF NOT EXISTS permission_flags jsonb;
+
+INSERT INTO public.roles (id, name, display_name, description, is_system, permission_flags) VALUES
+  ('00000000-0000-0000-0000-000000000005', 'supervisor', 'Supervisor', 'Floor-level oversight; bridge between Manager and Sales Person', true, '{"can_view_team_sales": true, "can_log_incidents": true, "can_create_users": false, "can_edit_sales": false}'),
+  ('00000000-0000-0000-0000-000000000006', 'accountant', 'Accountant / Finance Officer', 'Reconciles money — sales, expenses, pending payments — without editing sales records', true, '{"can_view_financials": true, "can_edit_sales": false, "can_view_scope": "business"}'),
+  ('00000000-0000-0000-0000-000000000007', 'inventory_officer', 'Inventory / Store Officer', 'Owns stock accuracy — receiving, damages, stock counts — separate from the sales person', true, '{"can_record_stock_in": true, "can_log_damages": true, "can_update_procurement": true, "can_view_scope": "branch"}'),
+  ('00000000-0000-0000-0000-000000000008', 'transport_officer', 'Transport / Fleet Officer', 'Logs trips, fuel, maintenance, driver-specific activity for the Transport arm', true, '{"can_log_trips": true, "can_log_fuel": true, "can_log_maintenance": true, "can_view_scope": "vehicle"}'),
+  ('00000000-0000-0000-0000-000000000009', 'auditor', 'Auditor', 'View-only oversight; can be handed to an external accountant/auditor without giving edit rights', true, '{"can_view_scope": "configurable", "can_create": false, "can_edit": false, "can_delete": false, "can_approve": false}')
+ON CONFLICT (name) DO NOTHING;

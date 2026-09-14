@@ -8,6 +8,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Input, Select, Textarea } from '@/components/ui/Form';
 import { Badge } from '@/components/ui/Badge';
 import { formatDate } from '@/lib/dateUtils';
+import { logAudit } from '@/lib/audit';
 import { isAtLeast } from '@/lib/rbac';
 import { TRANSFER_STATUS_STYLES, TRANSFER_STATUS_LABELS } from '@/lib/statusStyles';
 import type { StockTransfer, Branch, Product, TransferStatus } from '@/types/database';
@@ -19,6 +20,10 @@ export function TransfersPage() {
   const [filterStatus, setFilterStatus] = useState('all');
   const [viewTransfer, setViewTransfer] = useState<StockTransfer | null>(null);
   const canManage = isAtLeast(user, 'manager');
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
+
+  useEffect(() => { setPage(1); }, [search, filterStatus]);
 
   const { data: branches } = useSupabaseQuery<Branch[]>(
     () => supabase.from('branches').select('*').eq('is_active', true).order('name'),
@@ -27,14 +32,16 @@ export function TransfersPage() {
   );
 
   const transfersQuery = useMemo(() => {
+    const from = (page - 1) * pageSize;
+    const to = page * pageSize - 1;
     let q = supabase
       .from('stock_transfers')
-      .select(`*, from_branch:branches!from_branch_id(id,name), to_branch:branches!to_branch_id(id,name)`)
+      .select(`*, from_branch:branches!from_branch_id(id,name), to_branch:branches!to_branch_id(id,name)`, { count: 'exact' })
       .order('created_at', { ascending: false })
-      .limit(50);
+      .range(from, to);
     if (filterStatus !== 'all') q = q.eq('status', filterStatus as TransferStatus);
     return q;
-  }, [filterStatus]);
+  }, [filterStatus, page, pageSize]);
 
   const { data: transfers, loading, error, refetch } = useSupabaseQuery<StockTransfer[]>(
     () => transfersQuery,
@@ -71,6 +78,11 @@ export function TransfersPage() {
       }
     }
     await supabase.from('stock_transfers').update({ status: next, ...extra }).eq('id', t.id);
+    await logAudit(`transfer.${next}`, 'stock_transfers', t.id, {
+      from_branch_id: t.from_branch_id,
+      to_branch_id: t.to_branch_id,
+      transfer_number: t.transfer_number ?? null,
+    });
     refetch();
   };
 
@@ -149,6 +161,20 @@ export function TransfersPage() {
               </div>
             </div>
           ))}
+          <div className="p-4 border-t border-slate-100">
+            <div className="flex justify-between items-center text-sm text-slate-500">
+              <span>Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, filtered.length)} of {filtered.length} transfers</span>
+              <span>Page {page} of {Math.ceil(filtered.length / pageSize)}</span>
+            </div>
+            <div className="flex gap-2 justify-center">
+              <Button variant="ghost" onClick={()=>{setPage(p=> Math.max(1, p - 1));}} disabled={page===1}>
+                Prev
+              </Button>
+              <Button variant="ghost" onClick={()=>{setPage(p=> Math.min(Math.ceil(filtered.length / pageSize), p + 1));}} disabled={page>=Math.ceil(filtered.length / pageSize)}>
+                Next
+              </Button>
+            </div>
+          </div>
         </div>
       ) : (
         <EmptyState
@@ -254,6 +280,12 @@ function TransferModal({
     const itemsToInsert = validItems.map((it) => ({ transfer_id: tr.id, product_id: it.product_id, quantity: Number(it.quantity), received_quantity: 0 }));
     const { error: ie } = await supabase.from('stock_transfer_items').insert(itemsToInsert);
     if (ie) { setError('Transfer created but items failed: ' + ie.message); }
+    await logAudit('transfer.created', 'stock_transfers', tr.id, {
+      from_branch_id: fromBranchId,
+      to_branch_id: toBranchId,
+      transfer_number: transferNumber,
+      item_count: itemsToInsert.length,
+    });
     setSaving(false);
     onSaved();
   };

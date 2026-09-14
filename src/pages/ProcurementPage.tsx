@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/Badge';
 import { formatCurrency, formatDate } from '@/lib/dateUtils';
 import { isAtLeast, hasRole } from '@/lib/rbac';
 import { PURCHASE_STATUS_STYLES, PURCHASE_STATUS_LABELS } from '@/lib/statusStyles';
+import { logAudit } from '@/lib/audit';
 import type { PurchaseRequest, Business, Branch, Supplier, PurchaseStatus, Product } from '@/types/database';
 
 export function ProcurementPage() {
@@ -133,6 +134,7 @@ export function ProcurementPage() {
                     size="sm"
                     onClick={async () => {
                       await supabase.from('purchase_requests').update({ status: 'ordered', ordered_at: new Date().toISOString(), approved_by: user?.id }).eq('id', p.id);
+                      await logAudit('purchase.ordered', 'purchase_requests', p.id, { approved_by: user?.id ?? null });
                       refetch();
                     }}
                   >
@@ -149,6 +151,7 @@ export function ProcurementPage() {
                     size="sm"
                     onClick={async () => {
                       await supabase.from('purchase_requests').update({ status: 'received' }).eq('id', p.id);
+                      await logAudit('purchase.received', 'purchase_requests', p.id);
                       refetch();
                     }}
                   >
@@ -161,6 +164,7 @@ export function ProcurementPage() {
                     size="sm"
                     onClick={async () => {
                       await supabase.from('purchase_requests').update({ status: 'completed' }).eq('id', p.id);
+                      await logAudit('purchase.completed', 'purchase_requests', p.id);
                       refetch();
                     }}
                   >
@@ -239,6 +243,12 @@ function GRNModal({ purchase, currentUser, onClose, onSaved }: { purchase: Purch
     // update PR status
     const hasOutstanding = valid.some((it) => Number(it.quantity_short) > 0) || isPartial;
     await supabase.from('purchase_requests').update({ status: hasOutstanding ? 'partially_received' : 'received' }).eq('id', purchase.id);
+    await logAudit('goods_received', 'goods_received_notes', grn.id, {
+      grn_number: grnNumber,
+      purchase_request_id: purchase.id,
+      branch_id: purchase.branch_id,
+      is_partial: isPartial,
+    });
     setSaving(false); onSaved();
   };
 
@@ -355,7 +365,7 @@ function PurchaseModal({
     }
     setSaving(true);
     setError(null);
-    const { error: e } = await supabase.from('purchase_requests').insert({
+    const { data: created, error: e } = await supabase.from('purchase_requests').insert({
       business_id: businessId,
       branch_id: branchId,
       supplier_id: supplierId || null,
@@ -364,8 +374,9 @@ function PurchaseModal({
       expected_delivery_date: expectedDelivery || null,
       notes: notes.trim(),
       requested_by: currentUser?.id,
-    });
+    }).select('id').single();
     if (e) { setError('Could not create the purchase request.'); setSaving(false); return; }
+    await logAudit('purchase.created', 'purchase_requests', created?.id ?? null, { branch_id: branchId, business_id: businessId, estimated_cost: Number(estimatedCost || 0) });
     setSaving(false);
     onSaved();
   };

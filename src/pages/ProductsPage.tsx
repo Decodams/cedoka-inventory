@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Package, Plus, Pencil, Search, Tag } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSupabaseQuery, supabase } from '@/hooks/useSupabaseQuery';
@@ -20,6 +20,10 @@ export function ProductsPage() {
   const canManage = isAtLeast(user, 'manager');
 
   const isExecutive = hasRole(user, 'super_admin');
+  const [page, setPage] = useState(1);
+  const pageSize = 30;
+
+  useEffect(() => { setPage(1); }, [search, filterBusiness, user?.business_id]);
 
   const { data: businesses } = useSupabaseQuery<Business[]>(
     () => supabase.from('businesses').select('*').eq('is_active', true).order('name'),
@@ -40,16 +44,19 @@ export function ProductsPage() {
   );
 
   const productsQuery = useMemo(() => {
+    const from = (page - 1) * pageSize;
+    const to = page * pageSize - 1;
     let q = supabase
       .from('products')
-      .select(`*, category:categories(id,name), supplier:suppliers(id,name)`)
-      .order('name');
+      .select(`*, category:categories(id,name), supplier:suppliers(id,name)`, { count: 'exact' })
+      .order('name')
+      .range(from, to);
     if (!isExecutive && user?.business_id) {
       q = q.eq('business_id', user.business_id);
     }
     if (filterBusiness !== 'all') q = q.eq('business_id', filterBusiness);
     return q;
-  }, [isExecutive, user, filterBusiness]);
+  }, [isExecutive, user, filterBusiness, page, pageSize]);
 
   const { data: products, loading, error, refetch } = useSupabaseQuery<Product[]>(
     () => productsQuery,
@@ -105,7 +112,8 @@ export function ProductsPage() {
       </div>
 
       {filtered.length > 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map((p) => (
             <div key={p.id} className="bg-white rounded-2xl border border-slate-200 p-5 hover:border-slate-300 transition-colors">
               <div className="flex items-start justify-between gap-3">
@@ -157,6 +165,21 @@ export function ProductsPage() {
             </div>
           ))}
         </div>
+        <div className="p-4 border-t border-slate-100">
+          <div className="flex justify-between items-center text-sm text-slate-500">
+            <span>Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, filtered.length)} of {filtered.length} products</span>
+            <span>Page {page} of {Math.ceil(filtered.length / pageSize)}</span>
+          </div>
+          <div className="flex gap-2 justify-center">
+            <Button variant="ghost" onClick={()=>{setPage(p=> Math.max(1, p - 1));}} disabled={page===1}>
+              Prev
+            </Button>
+            <Button variant="ghost" onClick={()=>{setPage(p=> Math.min(Math.ceil(filtered.length / pageSize), p + 1));}} disabled={page>=Math.ceil(filtered.length / pageSize)}>
+              Next
+            </Button>
+          </div>
+        </div>
+        </>
       ) : (
         <EmptyState
           icon={<Package size={32} />}

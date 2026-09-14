@@ -11,6 +11,7 @@ interface AuthContextValue {
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   registerStaff: (fullName: string, email: string, password: string) => Promise<{ error: string | null }>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -169,12 +170,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [loadProfile],
   );
 
-  const registerStaff = useCallback(async (fullName: string, email: string, password: string) => {
+  const registerStaff = useCallback(async (fullName: string, email: string, password: string, roleName?: string, businessId?: string) => {
     const { error } = await supabase.functions.invoke('register-staff', {
-      body: { full_name: fullName.trim(), email: email.trim().toLowerCase(), password },
+      body: { full_name: fullName.trim(), email: email.trim().toLowerCase(), password, role_name: roleName, business_id: businessId },
     });
     return { error: error?.message ?? null };
   }, []);
+
+  const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
+    // First sign in with current password to verify
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email: user?.email ?? '',
+      password: currentPassword,
+    });
+    if (signInError) {
+      return { error: signInError.message || 'Current password is incorrect' };
+    }
+    
+    // Update the password - this preserves the session
+    const { error: updateError } = await supabase.auth.updateUser({
+      password: newPassword,
+    });
+    if (updateError) {
+      return { error: updateError.message || 'Could not change password' };
+    }
+    
+    return { error: null };
+  }, [user?.email]);
 
   const signOut = useCallback(async () => {
     clearQueryCache();
@@ -224,7 +246,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [session?.user?.id, signOut]);
 
   return (
-    <AuthContext.Provider value={{ session, user, roles, loading, signIn, registerStaff, signOut, refreshUser }}>
+    <AuthContext.Provider value={{ session, user, roles, loading, signIn, registerStaff, changePassword, signOut, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

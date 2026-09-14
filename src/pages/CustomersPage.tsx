@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Users, Plus, Pencil, Search, Power, Mail, Phone, MapPin, Building2 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSupabaseQuery, supabase } from '@/hooks/useSupabaseQuery';
@@ -18,17 +18,23 @@ export function CustomersPage() {
   const [filterBusiness, setFilterBusiness] = useState('all');
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Customer | null>(null);
+  const [page, setPage] = useState(1);
+  const pageSize = 30;
+
+  useEffect(() => { setPage(1); }, [search, filterBusiness, user?.business_id]);
 
   const { data: businesses } = useSupabaseQuery<Business[]>(() => supabase.from('businesses').select('*').eq('is_active', true).order('name'), [], { cacheKey: `ref:businesses:${user?.id ?? 'anon'}`, ttlMs: 60_000 });
   const { data: branches } = useSupabaseQuery<Branch[]>(() => supabase.from('branches').select('*').eq('is_active', true).order('name'), [], { cacheKey: `ref:branches:${user?.id ?? 'anon'}`, ttlMs: 60_000 });
   const { data: customers, loading, error, refetch } = useSupabaseQuery<Customer[]>(
     () => {
-      let q = supabase.from('customers').select(`*, business:businesses(id,name), branch:branches(id,name)`).order('created_at', { ascending: false });
+      const from = (page - 1) * pageSize;
+      const to = page * pageSize - 1;
+      let q = supabase.from('customers').select(`*, business:businesses(id,name), branch:branches(id,name)`, { count: 'exact' }).order('created_at', { ascending: false }).range(from, to);
       if (!isExecutive && user?.business_id) q = q.eq('business_id', user.business_id);
       if (filterBusiness !== 'all') q = q.eq('business_id', filterBusiness);
       return q;
     },
-    [filterBusiness, user?.business_id, isExecutive]
+    [filterBusiness, user?.business_id, isExecutive, page, pageSize]
   );
 
   const filtered = useMemo(() => {
@@ -65,7 +71,8 @@ export function CustomersPage() {
       </div>
 
       {filtered.length ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {filtered.map(c => (
             <div key={c.id} className="bg-white rounded-2xl border border-slate-200 p-5 hover:border-slate-300 hover:shadow-sm transition-all">
               <div className="flex items-start justify-between gap-3">
@@ -86,6 +93,21 @@ export function CustomersPage() {
             </div>
           ))}
         </div>
+        <div className="p-4 border-t border-slate-100">
+          <div className="flex justify-between items-center text-sm text-slate-500">
+            <span>Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, filtered.length)} of {filtered.length} customers</span>
+            <span>Page {page} of {Math.ceil(filtered.length / pageSize)}</span>
+          </div>
+          <div className="flex gap-2 justify-center">
+            <Button variant="ghost" onClick={()=>{setPage(p=> Math.max(1, p - 1));}} disabled={page===1}>
+              Prev
+            </Button>
+            <Button variant="ghost" onClick={()=>{setPage(p=> Math.min(Math.ceil(filtered.length / pageSize), p + 1));}} disabled={page>=Math.ceil(filtered.length / pageSize)}>
+              Next
+            </Button>
+          </div>
+          </div>
+        </>
       ) : (
         <EmptyState icon={<Users size={32} />} title="No customers yet" description="Add customers to link sales, receivables, and outstanding balances." action={<Button onClick={() => setShowModal(true)}><Plus size={18} /> New Customer</Button>} />
       )}

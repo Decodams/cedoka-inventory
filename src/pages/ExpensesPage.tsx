@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/Badge';
 import { formatCurrency, formatDate } from '@/lib/dateUtils';
 import { isAtLeast, hasRole } from '@/lib/rbac';
 import { EXPENSE_STATUS_STYLES, EXPENSE_STATUS_LABELS } from '@/lib/statusStyles';
+import { logAudit } from '@/lib/audit';
 import type { OperationalExpense, Branch } from '@/types/database';
 
 const EXPENSE_CATEGORIES = ['logistics','repairs','petty_cash','operational','utilities','rent','other'];
@@ -122,8 +123,8 @@ export function ExpensesPage() {
                 </div>
                 {isAtLeast(user,'admin') && e.status==='recorded' && (
                   <div className="flex gap-1 shrink-0">
-                    <Button size="sm" variant="ghost" onClick={async()=>{await supabase.from('operational_expenses').update({status:'approved', approved_by:user?.id}).eq('id',e.id); refetch();}}><CheckCircle size={14}/>Approve</Button>
-                    <Button size="sm" variant="ghost" onClick={async()=>{await supabase.from('operational_expenses').update({status:'rejected', approved_by:user?.id}).eq('id',e.id); refetch();}}><XCircle size={14}/>Reject</Button>
+                    <Button size="sm" variant="ghost" onClick={async()=>{await supabase.from('operational_expenses').update({status:'approved', approved_by:user?.id}).eq('id',e.id); await logAudit('expense.approved','operational_expenses',e.id,{amount:Number(e.amount),category:e.category}); refetch();}}><CheckCircle size={14}/>Approve</Button>
+                    <Button size="sm" variant="ghost" onClick={async()=>{await supabase.from('operational_expenses').update({status:'rejected', approved_by:user?.id}).eq('id',e.id); await logAudit('expense.rejected','operational_expenses',e.id,{amount:Number(e.amount),category:e.category}); refetch();}}><XCircle size={14}/>Reject</Button>
                   </div>
                 )}
               </div>
@@ -155,10 +156,11 @@ function ExpenseModal({ branches, currentUser, onClose, onSaved }: { branches: B
     if (!branchId || !description.trim() || Number(amount)<=0) { setError('Branch, description and positive amount are required'); return; }
     if (!selectedBranch) { setError('Invalid branch'); return; }
     setSaving(true); setError(null);
-    const { error: e } = await supabase.from('operational_expenses').insert({
+    const { data: created, error: e } = await supabase.from('operational_expenses').insert({
       business_id: selectedBranch.business_id, branch_id: branchId, category, description: description.trim(), amount: Number(amount), expense_date: expenseDate, recorded_by: currentUser?.id, status: 'recorded',
-    });
+    }).select('id').single();
     if (e) { setError(e.message); setSaving(false); return; }
+    await logAudit('expense.created', 'operational_expenses', created?.id ?? null, { branch_id: branchId, business_id: selectedBranch.business_id, category, amount: Number(amount) });
     setSaving(false); onSaved();
   };
 
