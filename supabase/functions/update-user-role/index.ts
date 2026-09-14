@@ -16,7 +16,7 @@ const ROLE_RANK: Record<string, number> = {
   farm_operations_officer: 1,
 };
 
-type Body = { p_user_id?: string; p_role_name?: string; p_business_id?: string | null; p_branch_id?: string | null };
+type Body = { p_user_id?: string; p_role_name?: string; p_business_id?: string | null; p_branch_id?: string | null; p_business_ids?: string[]; p_branch_ids?: string[] };
 
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
@@ -80,18 +80,41 @@ Deno.serve(async (request) => {
   // Resolve role if provided
   let roleId: string | null = null;
   if (roleName) {
-    const { data: role, error: roleError } = await admin.from('roles').select('id').eq('name', roleName).eq('is_active', true).maybeSingle();
+    const { data: role, error: roleError } = await admin.from('roles').select('id').eq('name', roleName).maybeSingle();
     if (roleError) return reply({ error: roleError.message }, 500);
     if (!role) return reply({ error: 'The target role is unavailable' }, 400);
     roleId = role.id;
   }
 
+  // Only Admin accounts may carry multiple business/branch assignments.  Keep
+  // the primary profile fields for compatibility with existing screens.
+  const nextRole = roleName ?? targetRole;
+  const businessIds = [...new Set((body.p_business_ids ?? (body.p_business_id ? [body.p_business_id] : [])).filter(Boolean))];
+  const branchIds = [...new Set((body.p_branch_ids ?? (body.p_branch_id ? [body.p_branch_id] : [])).filter(Boolean))];
+  if (nextRole === 'admin') {
+    if (!businessIds.length) return reply({ error: 'An Admin must have at least one business assignment' }, 400);
+    const { data: validBusinesses } = await admin.from('businesses').select('id').in('id', businessIds);
+    if ((validBusinesses?.length ?? 0) !== businessIds.length) return reply({ error: 'One or more selected businesses are invalid' }, 400);
+    const { data: validBranches } = branchIds.length ? await admin.from('branches').select('id,business_id').in('id', branchIds) : { data: [] as Array<{ id: string; business_id: string }> };
+    if ((validBranches?.length ?? 0) !== branchIds.length || validBranches?.some((branch) => !businessIds.includes(branch.business_id))) return reply({ error: 'Each selected branch must belong to a selected business' }, 400);
+    const assignmentsError = await admin.from('user_business_assignments').delete().eq('user_id', targetUserId);
+    if (assignmentsError.error) return reply({ error: assignmentsError.error.message }, 500);
+    const branchAssignmentsError = await admin.from('user_branch_assignments').delete().eq('user_id', targetUserId);
+    if (branchAssignmentsError.error) return reply({ error: branchAssignmentsError.error.message }, 500);
+    const { error: insertBusinessError } = await admin.from('user_business_assignments').insert(businessIds.map((business_id) => ({ user_id: targetUserId, business_id })));
+    if (insertBusinessError) return reply({ error: insertBusinessError.message }, 500);
+    if (branchIds.length) {
+      const { error: insertBranchError } = await admin.from('user_branch_assignments').insert(branchIds.map((branch_id) => ({ user_id: targetUserId, branch_id })));
+      if (insertBranchError) return reply({ error: insertBranchError.message }, 500);
+    }
+  }
+
   const { error: updateError } = await admin.from('user_profiles').update({
     ...(roleId ? { role_id: roleId } : {}),
-    ...(body.p_business_id !== undefined ? { business_id: body.p_business_id } : {}),
-    ...(body.p_branch_id !== undefined ? { branch_id: body.p_branch_id } : {}),
+    ...(nextRole === 'admin' ? { business_id: businessIds[0], branch_id: branchIds[0] ?? null } : {}),
+    ...(nextRole !== 'admin' && body.p_business_id !== undefined ? { business_id: body.p_business_id } : {}),
+    ...(nextRole !== 'admin' && body.p_branch_id !== undefined ? { branch_id: body.p_branch_id } : {}),
   }).eq('id', targetUserId);
-
   if (updateError) return reply({ error: updateError.message }, 500);
 
   await admin.from('audit_log').insert({
@@ -99,7 +122,7 @@ Deno.serve(async (request) => {
     action: 'user.role_updated',
     target_table: 'user_profiles',
     target_id: targetUserId,
-    metadata: { role: roleName, business_id: body.p_business_id, branch_id: body.p_branch_id },
+    metadata: { role: roleName, business_id: body.p_business_id, branch_id: body.p_branch_id, business_ids: businessIds, branch_ids: branchIds },
   });
 
   return reply({ success: true });

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Building2, Plus, MapPin, Pencil, ChevronRight, Calendar, Users, Tag } from 'lucide-react';
+import { Building2, Plus, MapPin, Pencil, ChevronRight, Calendar, Users, Tag, Trash2 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSupabaseQuery, supabase } from '@/hooks/useSupabaseQuery';
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States';
@@ -17,6 +17,7 @@ type StaffWithRole = Pick<UserProfile, 'id' | 'full_name' | 'business_id' | 'bra
 export function BusinessBranchPage() {
   const { user } = useAuth();
   const canManageBusinesses = hasRole(user, 'super_admin');
+  const canManageBranches = hasRole(user, 'super_admin', 'admin');
   const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
   const [showBizModal, setShowBizModal] = useState(false);
   const [showBranchModal, setShowBranchModal] = useState(false);
@@ -198,7 +199,7 @@ export function BusinessBranchPage() {
                     <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
                       Branches · {branchesForBusiness(biz.id).length}
                     </h4>
-                    <Button
+                    {canManageBranches && <Button
                       variant="ghost"
                       size="sm"
                       onClick={() => {
@@ -207,7 +208,7 @@ export function BusinessBranchPage() {
                       }}
                     >
                       <Plus size={14} /> Add Branch
-                    </Button>
+                    </Button>}
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     {branchesForBusiness(biz.id).map((branch) => {
@@ -232,7 +233,7 @@ export function BusinessBranchPage() {
                               )}
                             </div>
                           </div>
-                          <button
+                          {canManageBranches && <button
                             onClick={() => {
                               setEditingBranch(branch);
                               setShowBranchModal(true);
@@ -240,7 +241,19 @@ export function BusinessBranchPage() {
                             className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 shrink-0"
                           >
                             <Pencil size={14} />
-                          </button>
+                          </button>}
+                          {canManageBranches && <button
+                            aria-label={`Delete ${branch.name}`}
+                            title="Delete branch"
+                            onClick={async () => {
+                              const confirmed = window.confirm(`Delete ${branch.name}? If this branch has staff, stock, sales, or other records, the database will protect those records and the branch cannot be deleted.`);
+                              if (!confirmed) return;
+                              const { error: deleteError } = await supabase.from('branches').delete().eq('id', branch.id);
+                              if (deleteError) window.alert(`Branch was not deleted: ${deleteError.message}`);
+                              else refetch();
+                            }}
+                            className="p-1.5 rounded-lg text-rose-400 hover:bg-rose-50 hover:text-rose-600 shrink-0"
+                          ><Trash2 size={14} /></button>}
                         </div>
                         <div className="mt-2.5 pt-2.5 border-t border-slate-100">
                           {members.length > 0 ? (

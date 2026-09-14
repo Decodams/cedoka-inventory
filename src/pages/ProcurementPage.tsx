@@ -350,6 +350,7 @@ function PurchaseModal({
   const [businessId, setBusinessId] = useState(currentUser?.business_id ?? '');
   const [branchId, setBranchId] = useState(currentUser?.branch_id ?? '');
   const [supplierId, setSupplierId] = useState('');
+  const [newSupplierName, setNewSupplierName] = useState('');
   const [estimatedCost, setEstimatedCost] = useState('0');
   const [expectedDelivery, setExpectedDelivery] = useState('');
   const [notes, setNotes] = useState('');
@@ -365,10 +366,16 @@ function PurchaseModal({
     }
     setSaving(true);
     setError(null);
+    let resolvedSupplierId = supplierId || null;
+    if (newSupplierName.trim()) {
+      const { data: supplier, error: supplierError } = await supabase.from('suppliers').insert({ business_id: businessId, name: newSupplierName.trim() }).select('id').single();
+      if (supplierError || !supplier) { setError(supplierError?.message || 'Could not add the supplier.'); setSaving(false); return; }
+      resolvedSupplierId = supplier.id;
+    }
     const { data: created, error: e } = await supabase.from('purchase_requests').insert({
       business_id: businessId,
       branch_id: branchId,
-      supplier_id: supplierId || null,
+      supplier_id: resolvedSupplierId,
       status: 'requested',
       estimated_cost: Number(estimatedCost || 0),
       expected_delivery_date: expectedDelivery || null,
@@ -397,6 +404,7 @@ function PurchaseModal({
             <option value="">None / Unspecified</option>
             {filteredSuppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </Select>
+          <Input label="Or add supplier" value={newSupplierName} onChange={(e) => { setNewSupplierName(e.target.value); if (e.target.value) setSupplierId(''); }} placeholder="Supplier name" />
           <Input label="Estimated Cost" type="number" value={estimatedCost} onChange={(e) => setEstimatedCost(e.target.value)} />
           <Input label="Expected Delivery Date" type="date" value={expectedDelivery} onChange={(e) => setExpectedDelivery(e.target.value)} />
         </div>

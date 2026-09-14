@@ -217,6 +217,12 @@ function EditUserModal({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  useEffect(() => {
+    setRoleId(user.role_id);
+    setBusinessId(user.business_id ?? '');
+    setBranchIds(user.branch_id ? [user.branch_id] : []);
+  }, [user]);
+
   const availableRoles = roles.filter((r) => {
     if (hasRole(currentUser, 'super_admin')) return ['super_admin', 'admin', 'manager', 'sales_person', 'supervisor'].includes(r.name);
     if (hasRole(currentUser, 'admin')) return ['admin', 'manager', 'sales_person', 'supervisor'].includes(r.name);
@@ -255,7 +261,7 @@ function EditUserModal({
     setError(null); setSaving(true);
     const selectedRoleName = roles.find((r) => r.id === roleId)?.name;
     const { error: err } = await supabase.functions.invoke('update-user-role', {
-      body: { p_user_id: user.id, p_role_name: selectedRoleName, p_business_id: businessId || null, p_branch_id: branchIds.length > 0 ? branchIds[0] : null },
+      body: { p_user_id: user.id, p_role_name: selectedRoleName, p_business_id: businessId || null, p_branch_id: branchIds[0] ?? null, p_business_ids: selectedRoleName === 'admin' ? (businessId ? [businessId] : []) : undefined, p_branch_ids: selectedRoleName === 'admin' ? branchIds : undefined },
     });
     setSaving(false);
     if (err) { setError(err.message || 'Could not update the user.'); return; }
