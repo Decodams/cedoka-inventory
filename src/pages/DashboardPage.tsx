@@ -16,7 +16,12 @@ import {
   Receipt,
   MapPin,
   Gauge,
+  KeyRound,
+  ShieldCheck,
+  Mail,
+  Building2 as BuildingIcon,
 } from 'lucide-react';
+import { ChangePasswordModal } from '@/components/ChangePasswordModal';
 import { useAuth } from '@/context/AuthContext';
 import { useSupabaseQuery, supabase } from '@/hooks/useSupabaseQuery';
 import { LoadingState } from '@/components/ui/States';
@@ -35,6 +40,8 @@ export function DashboardPage() {
   const isSalesPerson = roleName === 'sales_person';
 
   const [periodRange, setPeriodRange] = useState<'week' | 'month'>('week');
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const isManager = roleName === 'manager';
 
   const businessesQuery = useMemo(() => {
     if (!isSuperAdmin) return supabase.from('businesses').select('*').eq('is_active', true).order('name').limit(1);
@@ -181,6 +188,90 @@ export function DashboardPage() {
           <span className="text-xs text-slate-400">{formatDate(new Date().toISOString())}</span>
         </div>
       </div>
+
+      {(isSuperAdmin || isManager) && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-4 min-w-0">
+              <div className="w-12 h-12 rounded-full bg-slate-900 text-white flex items-center justify-center text-lg font-bold shrink-0">
+                {user?.full_name?.charAt(0)?.toUpperCase()}
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-sm font-semibold text-slate-900">{user?.full_name}</h3>
+                <p className="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5 break-all">
+                  <Mail size={12} /> {user?.email}
+                </p>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5">
+                  <span className="text-xs text-slate-500 flex items-center gap-1 capitalize">
+                    <ShieldCheck size={13} className="text-emerald-500" /> {user?.role?.display_name}
+                  </span>
+                  {user?.business?.name && (
+                    <span className="text-xs text-slate-500 flex items-center gap-1">
+                      <BuildingIcon size={13} className="text-blue-500" /> {user.business.name}
+                    </span>
+                  )}
+                  {user?.branch?.name && (
+                    <span className="text-xs text-slate-500 flex items-center gap-1">
+                      <MapPin size={13} className="text-rose-500" /> {user.branch.name}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowChangePassword(true)}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-slate-900 rounded-lg hover:bg-slate-800 active:bg-slate-950 transition-all shadow-sm"
+              >
+                <KeyRound size={16} /> Change Password
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isAdmin && !isSuperAdmin && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-4 min-w-0">
+              <div className="w-12 h-12 rounded-full bg-slate-900 text-white flex items-center justify-center text-lg font-bold shrink-0">
+                {user?.full_name?.charAt(0)?.toUpperCase()}
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-sm font-semibold text-slate-900">{user?.full_name}</h3>
+                <p className="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5 break-all">
+                  <Mail size={12} /> {user?.email}
+                </p>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5">
+                  <span className="text-xs text-slate-500 flex items-center gap-1 capitalize">
+                    <ShieldCheck size={13} className="text-emerald-500" /> {user?.role?.display_name}
+                  </span>
+                  {user?.business?.name && (
+                    <span className="text-xs text-slate-500 flex items-center gap-1">
+                      <BuildingIcon size={13} className="text-blue-500" /> {user.business.name}
+                    </span>
+                  )}
+                  {user?.branch?.name && (
+                    <span className="text-xs text-slate-500 flex items-center gap-1">
+                      <MapPin size={13} className="text-rose-500" /> {user.branch.name}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowChangePassword(true)}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-slate-900 rounded-lg hover:bg-slate-800 active:bg-slate-950 transition-all shadow-sm"
+              >
+                <KeyRound size={16} /> Change Password
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
         {isSuperAdmin && (
@@ -388,6 +479,8 @@ export function DashboardPage() {
           ))}
         </div>
       </div>
+
+      <ChangePasswordModal open={showChangePassword} onClose={() => setShowChangePassword(false)} />
     </div>
   );
 }

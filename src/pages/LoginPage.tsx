@@ -1,6 +1,9 @@
 import { useRef, useState, type FormEvent } from 'react';
-import { Lock, Mail, Eye, EyeOff, Loader2, UserPlus } from 'lucide-react';
+import { Lock, Mail, Eye, EyeOff, Loader2, UserPlus, Building2, MapPin, BriefcaseBusiness } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { useSupabaseQuery, supabase } from '@/hooks/useSupabaseQuery';
+import { Select } from '@/components/ui/Form';
+import type { Business, Branch, Role } from '@/types/database';
 import logo from '@/logo.jpeg';
 
 export function LoginPage() {
@@ -9,12 +12,34 @@ export function LoginPage() {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [roleId, setRoleId] = useState('');
+  const [businessId, setBusinessId] = useState('');
+  const [branchId, setBranchId] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
   const [website, setWebsite] = useState('');
   const lastRegistrationAt = useRef(0);
+
+  const { data: businesses } = useSupabaseQuery<Business[]>(
+    () => supabase.from('businesses').select('*').eq('is_active', true).order('name'),
+    [],
+    { cacheKey: 'anon:businesses', ttlMs: 60_000 },
+  );
+  const { data: branches } = useSupabaseQuery<Branch[]>(
+    () => supabase.from('branches').select('*').eq('is_active', true).order('name'),
+    [],
+    { cacheKey: 'anon:branches', ttlMs: 60_000 },
+  );
+  const { data: roles } = useSupabaseQuery<Role[]>(
+    () => supabase.from('roles').select('id,name,display_name').order('name'),
+    [],
+    { cacheKey: 'anon:roles', ttlMs: 60_000 },
+  );
+
+  const registerableRoles = roles?.filter((r) => r.name !== 'super_admin' && r.name !== 'admin') ?? [];
+  const branchOptions = branches?.filter((b) => b.business_id === businessId) ?? [];
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -38,8 +63,19 @@ export function LoginPage() {
         setLoading(false);
         return;
       }
+      if (!roleId || !businessId || !branchId) {
+        setError('Select your role, business, and branch.');
+        setLoading(false);
+        return;
+      }
+      const selectedRole = registerableRoles.find((r) => r.id === roleId);
+      if (!selectedRole) {
+        setError('Select a valid role.');
+        setLoading(false);
+        return;
+      }
       lastRegistrationAt.current = Date.now();
-      const { error: registrationError } = await registerStaff(fullName, email, password);
+      const { error: registrationError } = await registerStaff(fullName, email, password, selectedRole.name, businessId, branchId);
       if (registrationError) setError(registrationError);
       else {
         setSuccess('Registration submitted. An administrator must approve your account before you can sign in.');

@@ -473,6 +473,18 @@ export interface DailySale {
   product?: Product;
   branch?: Branch;
   salesperson?: UserProfile;
+  items?: SaleItem[];
+}
+
+export interface SaleItem {
+  id: string;
+  sale_id: string;
+  product_id: string;
+  quantity: number;
+  unit_price: number;
+  discount_value: number;
+  created_at: string;
+  product?: Product;
 }
 
 export interface OperationalExpense {
