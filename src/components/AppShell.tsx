@@ -103,6 +103,13 @@ export function AppShell({ currentPage, onPageChange, children }: AppShellProps)
   const [pluginMessage, setPluginMessage] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!sidebarOpen) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previous; };
+  }, [sidebarOpen]);
+
+  useEffect(() => {
     if (!user?.id) return;
     supabase
       .from('user_dashboard_plugins')
@@ -141,7 +148,7 @@ export function AppShell({ currentPage, onPageChange, children }: AppShellProps)
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 bg-slate-900 z-30 lg:hidden"
+          className="fixed inset-0 bg-slate-900/50 z-30 lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}

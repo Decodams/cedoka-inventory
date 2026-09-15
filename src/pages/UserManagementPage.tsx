@@ -8,7 +8,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Input, Select } from '@/components/ui/Form';
 import { Badge } from '@/components/ui/Badge';
 import { ROLE_COLORS, hasRole, isAtLeast, canCreateRole } from '@/lib/rbac';
-import type { UserProfile, Business, Branch, Role, RoleName } from '@/types/database';
+import type { UserProfile, Business, Branch, Role, RoleName, Unit } from '@/types/database';
 
 const ROLE_RANK: Record<string, number> = {
   super_admin: 5, admin: 4, manager: 3, supervisor: 2,
@@ -40,18 +40,6 @@ export function UserManagementPage() {
     refetch();
   };
 
-  const handleEditRole = async (target: UserProfile) => {
-    setUpdating(true); setActionError(null);
-    const roleName = (target.role as { name?: string } | null)?.name;
-    const { error: err } = await supabase.functions.invoke('update-user-role', {
-      body: { p_user_id: target.id, p_role_name: roleName, p_business_id: target.business_id, p_branch_id: target.branch_id },
-    });
-    setUpdating(false);
-    if (err) { setActionError(err.message || 'Could not update the user role.'); return; }
-    setSuccess('User role and scope updated successfully.');
-    setEditingUser(null); refetch();
-  };
-
   const handleDelete = async (target: UserProfile) => {
     setUpdating(true); setDeleteError(null);
     const { error: err } = await supabase.functions.invoke('delete-user', { body: { p_user_id: target.id } });
@@ -67,6 +55,7 @@ export function UserManagementPage() {
   );
   const { data: businesses } = useSupabaseQuery<Business[]>(() => supabase.from('businesses').select('*').eq('is_active', true).order('name'), [], { cacheKey: `ref:businesses:${user?.id ?? 'anon'}`, ttlMs: 60_000 });
   const { data: branches } = useSupabaseQuery<Branch[]>(() => supabase.from('branches').select('*').eq('is_active', true).order('name'), [], { cacheKey: `ref:branches:${user?.id ?? 'anon'}`, ttlMs: 60_000 });
+  const { data: orgUnits } = useSupabaseQuery<Unit[]>(() => supabase.from('units').select('*').eq('is_active', true).order('name'), [], { cacheKey: `ref:units:${user?.id ?? 'anon'}`, ttlMs: 60_000 });
 
   const filteredProfiles = useMemo(() => {
     if (!profiles) return [];
@@ -200,20 +189,32 @@ export function UserManagementPage() {
         <CreateUserModal roles={roles} businesses={businesses ?? []} branches={branches ?? []} currentUser={user} superAdminCount={profiles?.filter((p) => p.role?.name === 'super_admin').length ?? 0} onClose={() => setShowModal(false)} onSaved={() => { refetch(); setShowModal(false); setSuccess('User account created successfully.'); }} />
       )}
       {editingUser && (
-        <EditUserModal user={editingUser} roles={roles} businesses={businesses ?? []} branches={branches ?? []} currentUser={user} onClose={() => setEditingUser(null)} onSaved={() => { setEditingUser(null); refetch(); setSuccess('User role and scope updated successfully.'); }} />
+        <EditUserModal user={editingUser} roles={roles} businesses={businesses ?? []} branches={branches ?? []} orgUnits={orgUnits ?? []} currentUser={user} onClose={() => setEditingUser(null)} onSaved={() => { setEditingUser(null); refetch(); setSuccess('User role and scope updated successfully.'); }} />
+      )}
+      {deletingUser && (
+        <Modal open onClose={() => setDeletingUser(null)} title="Delete User" size="sm">
+          <div className="space-y-4">
+            <p className="text-sm text-slate-600">Delete <strong>{deletingUser.full_name}</strong> ({deletingUser.email})? This permanently removes their account and cannot be undone. Super Admin accounts are locked and cannot be deleted.</p>
+            <div className="flex justify-end gap-3">
+              <Button variant="outline" onClick={() => setDeletingUser(null)}>Cancel</Button>
+              <Button variant="danger" onClick={() => handleDelete(deletingUser)} disabled={updating}>{updating ? 'Deleting...' : 'Delete User'}</Button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );
 }
 
 function EditUserModal({
-  user, roles, businesses, branches, currentUser, onClose, onSaved,
+  user, roles, businesses, branches, orgUnits, currentUser, onClose, onSaved,
 }: {
-  user: UserProfile; roles: Role[]; businesses: Business[]; branches: Branch[]; currentUser: UserProfile | null; onClose: () => void; onSaved: () => void;
+  user: UserProfile; roles: Role[]; businesses: Business[]; branches: Branch[]; orgUnits: Unit[]; currentUser: UserProfile | null; onClose: () => void; onSaved: () => void;
 }) {
   const [roleId, setRoleId] = useState('');
   const [businessId, setBusinessId] = useState('');
   const [branchIds, setBranchIds] = useState<string[]>([]);
+  const [unitIds, setUnitIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -221,6 +222,9 @@ function EditUserModal({
     setRoleId(user.role_id);
     setBusinessId(user.business_id ?? '');
     setBranchIds(user.branch_id ? [user.branch_id] : []);
+    supabase.from('user_unit_assignments').select('unit_id').eq('user_id', user.id).then(({ data }) => {
+      if (data) setUnitIds((data as Array<{ unit_id: string }>).map((r) => r.unit_id));
+    });
   }, [user]);
 
   const availableRoles = roles.filter((r) => {
@@ -248,6 +252,12 @@ function EditUserModal({
     return [];
   }, [branches, businessId, currentUser]);
 
+  const canManageUnits = hasRole(currentUser, 'super_admin') || hasRole(currentUser, 'admin');
+  const availableUnits = useMemo(() => {
+    if (!businessId) return [];
+    return orgUnits.filter((u) => u.business_id === businessId && (branchIds.length === 0 || !u.branch_id || branchIds.includes(u.branch_id)));
+  }, [orgUnits, businessId, branchIds]);
+
   const availableBusinesses = useMemo(() => {
     if (hasRole(currentUser, 'super_admin')) return businesses;
     return businesses.filter((b) => b.id === currentUser?.business_id);
@@ -260,11 +270,49 @@ function EditUserModal({
     if (!roleId) { setError('Role is required'); return; }
     setError(null); setSaving(true);
     const selectedRoleName = roles.find((r) => r.id === roleId)?.name;
-    const { error: err } = await supabase.functions.invoke('update-user-role', {
-      body: { p_user_id: user.id, p_role_name: selectedRoleName, p_business_id: businessId || null, p_branch_id: branchIds[0] ?? null, p_business_ids: selectedRoleName === 'admin' ? (businessId ? [businessId] : []) : undefined, p_branch_ids: selectedRoleName === 'admin' ? branchIds : undefined },
-    });
+    const payload = { p_user_id: user.id, p_role_name: selectedRoleName, p_business_id: businessId || null, p_branch_id: branchIds[0] ?? null };
+    const { error: err } = await supabase.functions.invoke('update-user-role', { body: payload });
+    if (err && !String(err.message || '').includes('Failed to send a request')) {
+      setError(err.message || 'Could not update the user.');
+      setSaving(false);
+      return;
+    }
+    if (err) {
+      // Edge Function is unreachable (not deployed / offline): fall back to a
+      // direct update, which succeeds for Super Admin and Admin under RLS.
+      const { error: directErr } = await supabase.from('user_profiles').update({
+        role_id: roleId, business_id: businessId || null, branch_id: branchIds[0] ?? null,
+      }).eq('id', user.id);
+      if (directErr) {
+        setError(`User service is unreachable and direct update failed: ${directErr.message}. Ask an administrator to deploy the update-user-role function.`);
+        setSaving(false);
+        return;
+      }
+    }
+    // Persist multi-branch oversight (Admins may oversee more than one branch).
+    const { error: clearErr } = await supabase.from('user_branch_assignments').delete().eq('user_id', user.id);
+    if (!clearErr && branchIds.length > 0) {
+      const { error: assignErr } = await supabase.from('user_branch_assignments')
+        .insert(branchIds.map((branch_id) => ({ user_id: user.id, branch_id })));
+      if (assignErr) {
+        setError(`Role saved, but branch assignments failed: ${assignErr.message}`);
+        setSaving(false);
+        return;
+      }
+    }
+    // Persist unit/department assignments (stale selections from another business are dropped).
+    const validUnitIds = unitIds.filter((id) => availableUnits.some((u) => u.id === id));
+    const { error: clearUnitErr } = await supabase.from('user_unit_assignments').delete().eq('user_id', user.id);
+    if (!clearUnitErr && validUnitIds.length > 0) {
+      const { error: unitAssignErr } = await supabase.from('user_unit_assignments')
+        .insert(validUnitIds.map((unit_id) => ({ user_id: user.id, unit_id })));
+      if (unitAssignErr) {
+        setError(`Role saved, but unit assignments failed: ${unitAssignErr.message}`);
+        setSaving(false);
+        return;
+      }
+    }
     setSaving(false);
-    if (err) { setError(err.message || 'Could not update the user.'); return; }
     onSaved();
   };
 
@@ -289,6 +337,19 @@ function EditUserModal({
               {availableBranches.map((b) => (
                 <div key={b.id} className={`selected-chip inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${branchIds.includes(b.id) ? 'bg-rose-100 text-rose-600' : 'border border-rose-300 text-rose-700 hover:bg-rose-50'}`} onClick={() => { setBranchIds((prev) => (branchIds.includes(b.id) ? prev.filter((id) => id !== b.id) : [...prev, b.id])); }}>
                   {b.name}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {canManageUnits && businessId && (
+          <div className="space-y-2">
+            <span className="text-sm text-slate-600">Units / Departments (select all that apply)</span>
+            <div className="flex flex-wrap gap-2">
+              {availableUnits.length === 0 && <span className="text-xs text-slate-400">No units defined for this business yet.</span>}
+              {availableUnits.map((u) => (
+                <div key={u.id} className={`selected-chip inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${unitIds.includes(u.id) ? 'bg-emerald-100 text-emerald-700' : 'border border-emerald-300 text-emerald-700 hover:bg-emerald-50'}`} onClick={() => { setUnitIds((prev) => (unitIds.includes(u.id) ? prev.filter((id) => id !== u.id) : [...prev, u.id])); }}>
+                  {u.name}
                 </div>
               ))}
             </div>

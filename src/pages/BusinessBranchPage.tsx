@@ -18,11 +18,15 @@ export function BusinessBranchPage() {
   const { user } = useAuth();
   const canManageBusinesses = hasRole(user, 'super_admin');
   const canManageBranches = hasRole(user, 'super_admin', 'admin');
+  const canManageCategories = hasRole(user, 'super_admin', 'admin');
   const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
   const [showBizModal, setShowBizModal] = useState(false);
   const [showBranchModal, setShowBranchModal] = useState(false);
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [categoryModalBiz, setCategoryModalBiz] = useState<Business | null>(null);
   const [editingBiz, setEditingBiz] = useState<Business | null>(null);
   const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
 
   const { data: businesses, loading, error, refetch } = useSupabaseQuery<Business[]>(
     () => supabase.from('businesses').select('*').order('name'),
@@ -36,7 +40,7 @@ export function BusinessBranchPage() {
     { cacheKey: `org:branches:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
   );
 
-  const { data: categories } = useSupabaseQuery<Category[]>(
+  const { data: categories, refetch: refetchCategories } = useSupabaseQuery<Category[]>(
     () => supabase.from('categories').select('*').eq('is_active', true).order('name'),
     [],
     { cacheKey: `ref:categories:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
@@ -68,6 +72,27 @@ export function BusinessBranchPage() {
       counts.set(key, { display, count: (prev?.count ?? 0) + 1 });
     }
     return [...counts.entries()];
+  };
+
+  const handleDeleteCategory = async (cat: Category) => {
+    const confirmed = window.confirm(`Delete category "${cat.name}"?`);
+    if (!confirmed) return;
+    const { data: prods } = await supabase.from('products').select('id').eq('category_id', cat.id).limit(1);
+    if (prods && prods.length > 0) {
+      window.alert(`Cannot delete category "${cat.name}" because it is currently assigned to products. Please reassign or delete those products first.`);
+      return;
+    }
+    const { error: fnError } = await supabase.functions.invoke('manage-category', {
+      body: { p_business_id: cat.business_id, p_category_id: cat.id, p_action: 'delete' },
+    });
+    if (fnError) {
+      const { error: directError } = await supabase.from('categories').delete().eq('id', cat.id);
+      if (directError) {
+        window.alert('Could not delete category: ' + directError.message);
+        return;
+      }
+    }
+    refetchCategories();
   };
 
   if (loading) return <LoadingState />;
@@ -150,23 +175,66 @@ export function BusinessBranchPage() {
 
                   {/* Categories scoped to this business */}
                   <div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <Tag size={13} className="text-slate-400" />
-                      <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                        Categories · {categoriesForBusiness(biz.id).length}
-                      </h4>
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <div className="flex items-center gap-2">
+                        <Tag size={13} className="text-slate-400" />
+                        <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                          Categories · {categoriesForBusiness(biz.id).length}
+                        </h4>
+                      </div>
+                      {canManageCategories && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setCategoryModalBiz(biz);
+                            setEditingCategory(null);
+                            setShowCategoryModal(true);
+                          }}
+                        >
+                          <Plus size={14} /> Add Category
+                        </Button>
+                      )}
                     </div>
                     {categoriesForBusiness(biz.id).length > 0 ? (
-                      <div className="flex flex-wrap gap-1.5">
+                      <div className="flex flex-wrap gap-2">
                         {categoriesForBusiness(biz.id).map((c) => (
-                          <Badge key={c.id} className="bg-white text-slate-600 border-slate-200">
-                            {c.name}
-                          </Badge>
+                          <div
+                            key={c.id}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-xs text-slate-700 shadow-xs group"
+                          >
+                            <span className="font-medium">{c.name}</span>
+                            {canManageCategories && (
+                              <div className="flex items-center gap-1 ml-1 opacity-70 group-hover:opacity-100">
+                                <button
+                                  type="button"
+                                  title="Edit category"
+                                  onClick={() => {
+                                    setCategoryModalBiz(biz);
+                                    setEditingCategory(c);
+                                    setShowCategoryModal(true);
+                                  }}
+                                  className="text-slate-400 hover:text-slate-700"
+                                >
+                                  <Pencil size={11} />
+                                </button>
+                                <button
+                                  type="button"
+                                  title="Delete category"
+                                  onClick={() => handleDeleteCategory(c)}
+                                  className="text-slate-400 hover:text-rose-600"
+                                >
+                                  <Trash2 size={11} />
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         ))}
                       </div>
                     ) : (
                       <p className="text-xs text-slate-400">
-                        No categories yet for this business. Add them from Products → Categories.
+                        No categories yet for this business.{' '}
+                        {canManageCategories && 'Click "+ Add Category" to create one.'}
                       </p>
                     )}
                   </div>
@@ -327,6 +395,24 @@ export function BusinessBranchPage() {
             refetch();
             setShowBranchModal(false);
             setEditingBranch(null);
+          }}
+        />
+      )}
+
+      {showCategoryModal && categoryModalBiz && (
+        <CategoryFormModal
+          business={categoryModalBiz}
+          category={editingCategory}
+          onClose={() => {
+            setShowCategoryModal(false);
+            setEditingCategory(null);
+            setCategoryModalBiz(null);
+          }}
+          onSaved={() => {
+            refetchCategories();
+            setShowCategoryModal(false);
+            setEditingCategory(null);
+            setCategoryModalBiz(null);
           }}
         />
       )}
@@ -510,6 +596,98 @@ function BranchFormModal({
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button onClick={handleSave} disabled={saving}>
             {saving ? 'Saving...' : 'Save'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function CategoryFormModal({
+  business,
+  category,
+  onClose,
+  onSaved,
+}: {
+  business: Business;
+  category: Category | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(category?.name ?? '');
+  const [description, setDescription] = useState(category?.description ?? '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSave = async () => {
+    if (!name.trim()) {
+      setError('Category name is required');
+      return;
+    }
+    setSaving(true);
+    setError(null);
+
+    const action = category ? 'update' : 'create';
+    const payload = {
+      p_business_id: business.id,
+      p_name: name.trim(),
+      p_description: description.trim(),
+      ...(category ? { p_category_id: category.id } : {}),
+      p_action: action,
+    };
+
+    const { error: fnError } = await supabase.functions.invoke('manage-category', { body: payload });
+    if (fnError) {
+      // Direct supabase table fallback
+      let directError;
+      if (category) {
+        const res = await supabase
+          .from('categories')
+          .update({ name: name.trim(), description: description.trim() })
+          .eq('id', category.id);
+        directError = res.error;
+      } else {
+        const res = await supabase
+          .from('categories')
+          .insert({
+            business_id: business.id,
+            name: name.trim(),
+            description: description.trim(),
+            is_active: true,
+          });
+        directError = res.error;
+      }
+      if (directError) {
+        setError(directError.message || fnError.message || 'Could not save category.');
+        setSaving(false);
+        return;
+      }
+    }
+    setSaving(false);
+    onSaved();
+  };
+
+  return (
+    <Modal open onClose={onClose} title={category ? 'Edit Category' : `Add Category to ${business.name}`}>
+      <div className="space-y-4">
+        <Input
+          label="Category Name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. Grains, Solar Inverters, Accessories"
+          autoFocus
+        />
+        <Textarea
+          label="Description"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Optional description of this category..."
+        />
+        {error && <p className="text-sm text-rose-600 px-1">{error}</p>}
+        <div className="flex justify-end gap-3 pt-2">
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? 'Saving...' : 'Save Category'}
           </Button>
         </div>
       </div>

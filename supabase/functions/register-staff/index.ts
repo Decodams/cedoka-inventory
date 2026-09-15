@@ -3,7 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const corsHeaders = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type' };
 const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
-const NON_REGISTERABLE_ROLES = new Set(['super_admin', 'admin']);
+const NON_REGISTERABLE_ROLES = new Set(['super_admin']);
 
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
@@ -11,7 +11,7 @@ Deno.serve(async (request) => {
   const url = Deno.env.get('SUPABASE_URL');
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   if (!url || !serviceKey) return reply({ error: 'Server registration is not configured' }, 500);
-  let body: { email?: string; password?: string; full_name?: string; role_name?: string; business_id?: string; branch_id?: string };
+  let body: { email?: string; password?: string; full_name?: string; role_name?: string; business_id?: string; branch_id?: string; unit_id?: string | null };
   try { body = await request.json(); } catch { return reply({ error: 'Invalid request body' }, 400); }
   const email = body.email?.trim().toLowerCase();
   const fullName = body.full_name?.trim();
@@ -53,6 +53,12 @@ Deno.serve(async (request) => {
   if (profileError) {
     await admin.auth.admin.deleteUser(created.user.id);
     return reply({ error: profileError.message }, 400);
+  }
+  if (body.unit_id) {
+    const { data: unit } = await admin.from('units').select('id,business_id,branch_id').eq('id', body.unit_id).eq('is_active', true).maybeSingle();
+    if (unit && unit.business_id === businessId && (!unit.branch_id || unit.branch_id === branchId)) {
+      await admin.from('user_unit_assignments').insert({ user_id: created.user.id, unit_id: unit.id });
+    }
   }
   await admin.from('audit_log').insert({
     actor_id: created.user.id,

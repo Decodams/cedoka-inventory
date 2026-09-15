@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { DollarSign, Plus, Receipt, Search, Trash2 } from 'lucide-react';
+import { DollarSign, Plus, Minus, Receipt, Search, Trash2 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { supabase, useSupabaseQuery } from '@/hooks/useSupabaseQuery';
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States';
@@ -9,6 +9,7 @@ import { Input, Select, Textarea } from '@/components/ui/Form';
 import { Badge } from '@/components/ui/Badge';
 import { formatCurrency, formatDate } from '@/lib/dateUtils';
 import { hasRole, isAtLeast } from '@/lib/rbac';
+import { formatUnitQuantity } from '@/lib/business';
 import { SALE_STATUS_LABELS, SALE_STATUS_STYLES } from '@/lib/statusStyles';
 import { useReceiptPDF } from '@/components/ReceiptPDF';
 import type { Branch, DailySale, Product, SaleItem, UserProfile } from '@/types/database';
@@ -48,14 +49,290 @@ export function SalesPage() {
 
 function Metric({ label, value }: { label: string; value: string }) { return <div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs text-slate-400">{label}</p><p className="mt-1 text-xl font-bold text-slate-900">{value}</p></div>; }
 type CartItem = Omit<SaleItem, 'id' | 'sale_id' | 'created_at'> & { product: Product };
+
 function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Branch[]; currentUser: UserProfile | null; onClose: () => void; onSaved: () => void }) {
   const canChooseBranch = currentUser?.role?.name === 'admin' || currentUser?.role?.name === 'super_admin';
-  const [branchId, setBranchId] = useState(currentUser?.branch_id ?? ''); const [products, setProducts] = useState<Product[]>([]); const [productId, setProductId] = useState(''); const [quantity, setQuantity] = useState('1'); const [unitPrice, setUnitPrice] = useState('0'); const [discount, setDiscount] = useState('0'); const [items, setItems] = useState<CartItem[]>([]); const [customerName, setCustomerName] = useState(''); const [amountPaid, setAmountPaid] = useState('0'); const [paymentMethod, setPaymentMethod] = useState('cash'); const [notes, setNotes] = useState(''); const [saving, setSaving] = useState(false); const [error, setError] = useState<string | null>(null);
-  const branch = branches.find((candidate) => candidate.id === branchId);
-  useEffect(() => { if (!branch) { setProducts([]); return; } supabase.from('products').select('*').eq('business_id', branch.business_id).eq('is_active', true).order('name').then(({ data }) => setProducts((data as Product[]) || [])); }, [branch?.id]);
-  const selectProduct = (id: string) => { setProductId(id); const product = products.find((candidate) => candidate.id === id); if (product) setUnitPrice(String(product.selling_price)); };
-  const addItem = () => { const product = products.find((candidate) => candidate.id === productId); if (!product || Number(quantity) <= 0 || Number(unitPrice) < 0) { setError('Select a product and use a valid quantity and price.'); return; } setItems((current) => [...current, { product, product_id: product.id, quantity: Number(quantity), unit_price: Number(unitPrice), discount_value: Number(discount) || 0 }]); setProductId(''); setQuantity('1'); setUnitPrice('0'); setDiscount('0'); setError(null); };
+  const [branchId, setBranchId] = useState(currentUser?.branch_id ?? '');
+  const [products, setProducts] = useState<Product[]>([]);
+  const [stockByProduct, setStockByProduct] = useState<Record<string, number>>({});
+  const [loadingProducts, setLoadingProducts] = useState(false);
+  const [query, setQuery] = useState('');
+  const [productId, setProductId] = useState('');
+  const [quantity, setQuantity] = useState('1');
+  const [unitPrice, setUnitPrice] = useState('0');
+  const [discount, setDiscount] = useState('0');
+  const [items, setItems] = useState<CartItem[]>([]);
+  const [customerName, setCustomerName] = useState('');
+  const [amountPaid, setAmountPaid] = useState('');
+  const [paidTouched, setPaidTouched] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const branch = branches.find((candidate) => candidate.id === branchId) ?? null;
+  const branchKey = branch?.id ?? '';
+  const branchBusinessId = branch?.business_id ?? '';
+
+  useEffect(() => {
+    if (!canChooseBranch && currentUser?.branch_id && !branchId) setBranchId(currentUser.branch_id);
+  }, [canChooseBranch, currentUser?.branch_id, branchId]);
+
+  useEffect(() => {
+    if (!branchId && branches.length === 1) setBranchId(branches[0].id);
+  }, [branches, branchId]);
+
+  useEffect(() => {
+    if (!branchKey) { setProducts([]); setStockByProduct({}); return; }
+    setLoadingProducts(true);
+    supabase
+      .from('products')
+      .select('*')
+      .eq('business_id', branchBusinessId)
+      .eq('is_active', true)
+      .order('name')
+      .then(({ data }) => {
+        setProducts((data as Product[]) || []);
+        setLoadingProducts(false);
+      });
+    supabase
+      .from('inventory_balances')
+      .select('product_id,current_stock')
+      .eq('branch_id', branchKey)
+      .then(({ data }) => {
+        const map: Record<string, number> = {};
+        for (const row of (data ?? []) as Array<{ product_id: string; current_stock: number | string }>) {
+          map[row.product_id] = Number(row.current_stock) || 0;
+        }
+        setStockByProduct(map);
+      });
+  }, [branchKey, branchBusinessId]);
+
+  const visibleProducts = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const list = q
+      ? products.filter((p) => p.name.toLowerCase().includes(q) || (p.sku ?? '').toLowerCase().includes(q))
+      : products;
+    return list.slice(0, 60);
+  }, [products, query]);
+
+  const selectedProduct = products.find((candidate) => candidate.id === productId) ?? null;
+
+  const selectProduct = (id: string) => {
+    setProductId(id);
+    const product = products.find((candidate) => candidate.id === id);
+    if (product) setUnitPrice(String(product.selling_price));
+    setError(null);
+  };
+
+  const stepQuantity = (delta: number) => {
+    setQuantity((current) => {
+      const next = (Number(current) || 0) + delta;
+      return String(next < 0 ? 0 : Math.round(next * 100) / 100);
+    });
+  };
+
+  const addItem = () => {
+    const product = products.find((candidate) => candidate.id === productId);
+    const qty = Number(quantity);
+    const price = Number(unitPrice);
+    const disc = Number(discount) || 0;
+    if (!product || !(qty > 0) || !(price >= 0)) {
+      setError('Select a product and enter a valid quantity and price.');
+      return;
+    }
+    const alreadyInCart = items.filter((it) => it.product_id === product.id).reduce((sum, it) => sum + it.quantity, 0);
+    const available = stockByProduct[product.id];
+    if (available !== undefined && qty + alreadyInCart > available) {
+      setError(`Only ${formatUnitQuantity(available, product.unit)} of ${product.name} is in stock at this branch.`);
+      return;
+    }
+    setItems((current) => {
+      const existing = current.findIndex((it) => it.product_id === product.id && it.unit_price === price && it.discount_value === disc);
+      if (existing >= 0) {
+        const next = [...current];
+        next[existing] = { ...next[existing], quantity: Math.round((next[existing].quantity + qty) * 100) / 100 };
+        return next;
+      }
+      return [...current, { product, product_id: product.id, quantity: qty, unit_price: price, discount_value: disc }];
+    });
+    setProductId('');
+    setQuery('');
+    setQuantity('1');
+    setUnitPrice('0');
+    setDiscount('0');
+    setError(null);
+  };
+
   const total = items.reduce((sum, item) => sum + item.quantity * item.unit_price - item.discount_value, 0);
-  const complete = async () => { if (!branchId || !items.length) { setError('Select a branch and add at least one item.'); return; } setSaving(true); setError(null); const { error: rpcError } = await supabase.rpc('create_sale_with_items', { p_branch_id: branchId, p_customer_name: customerName || null, p_payment_method: paymentMethod, p_amount_paid: Number(amountPaid) || 0, p_notes: notes || null, p_items: items.map(({ product, ...item }) => item) }); setSaving(false); if (rpcError) { setError(rpcError.message); return; } onSaved(); };
-  return <Modal open onClose={onClose} title="Record Sale" size="lg"><div className="space-y-4"><div className="grid gap-4 sm:grid-cols-2"><Select label="Branch" value={branchId} disabled={!canChooseBranch} onChange={(event) => { setBranchId(event.target.value); setItems([]); }}><option value="">Select branch...</option>{branches.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</Select><Input label="Customer" value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Walk-in customer" /></div><div className="rounded-xl border p-4"><p className="mb-3 text-sm font-semibold">Add item</p><div className="grid gap-3 sm:grid-cols-4"><Select value={productId} onChange={(event) => selectProduct(event.target.value)}><option value="">Product...</option>{products.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}</Select><Input type="number" value={quantity} onChange={(event) => setQuantity(event.target.value)} placeholder="Qty" /><Input type="number" value={unitPrice} onChange={(event) => setUnitPrice(event.target.value)} placeholder="Price" /><Button variant="outline" onClick={addItem}>Add</Button></div><Input className="mt-3" label="Item discount (NGN)" type="number" value={discount} onChange={(event) => setDiscount(event.target.value)} /></div>{items.length > 0 && <div className="divide-y rounded-xl border">{items.map((item, index) => <div className="flex items-center justify-between gap-3 p-3 text-sm" key={`${item.product_id}-${index}`}><span>{item.product.name} <span className="text-slate-400">× {item.quantity}</span></span><span className="font-medium">{formatCurrency(item.quantity * item.unit_price - item.discount_value)}</span><button className="text-rose-500" onClick={() => setItems((current) => current.filter((_, i) => i !== index))} aria-label="Remove item"><Trash2 size={16} /></button></div>)}</div>}<div className="grid gap-4 sm:grid-cols-2"><Select label="Payment method" value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)}><option value="cash">Cash</option><option value="transfer">Bank transfer</option><option value="pos">POS</option><option value="credit">Credit</option></Select><Input label="Amount paid (NGN)" type="number" value={amountPaid} onChange={(event) => setAmountPaid(event.target.value)} /></div><div className="rounded-xl bg-slate-50 p-4 text-center"><p className="text-xs text-slate-400">Total</p><p className="text-xl font-bold">{formatCurrency(total)}</p></div><Textarea label="Notes" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Optional sale notes" />{error && <p className="text-sm text-rose-600">{error}</p>}<div className="flex justify-end gap-3"><Button variant="outline" onClick={onClose}>Cancel</Button><Button onClick={complete} disabled={saving}>{saving ? 'Saving...' : 'Complete Sale'}</Button></div></div></Modal>;
+
+  useEffect(() => {
+    if (!paidTouched) setAmountPaid(total > 0 ? String(Math.round(total * 100) / 100) : '');
+  }, [total, paidTouched]);
+
+  const paid = Number(amountPaid) || 0;
+  const change = paid - total;
+
+  const complete = async () => {
+    if (!branchId) { setError('Select a branch first.'); return; }
+    if (!items.length) { setError('Add at least one item to the sale.'); return; }
+    setSaving(true);
+    setError(null);
+    const { error: rpcError } = await supabase.rpc('create_sale_with_items', {
+      p_branch_id: branchId,
+      p_customer_name: customerName.trim() || null,
+      p_payment_method: paymentMethod,
+      p_amount_paid: paid,
+      p_notes: notes.trim() || null,
+      p_items: items.map((item) => ({ product_id: item.product_id, quantity: item.quantity, unit_price: item.unit_price, discount_value: item.discount_value })),
+    });
+    setSaving(false);
+    if (rpcError) { setError(rpcError.message); return; }
+    onSaved();
+  };
+
+  return (
+    <Modal open onClose={onClose} title="Record Sale" size="lg">
+      <div className="space-y-4">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Select label="Branch" value={branchId} disabled={!canChooseBranch} onChange={(event) => { setBranchId(event.target.value); setItems([]); }}>
+            <option value="">Select branch...</option>
+            {branches.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}
+          </Select>
+          <Input label="Customer" value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Walk-in customer" />
+        </div>
+
+        <div className="rounded-xl border border-slate-200 p-4 space-y-3">
+          <p className="text-sm font-semibold text-slate-800">Add items</p>
+          <div className="relative">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={branchKey ? 'Type to search products...' : 'Select a branch first...'}
+              disabled={!branchKey}
+              className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10 disabled:bg-slate-50"
+            />
+          </div>
+          {branchKey && (
+            <div className="max-h-44 overflow-y-auto divide-y divide-slate-100 rounded-lg border border-slate-100">
+              {loadingProducts && <p className="p-3 text-sm text-slate-400">Loading products...</p>}
+              {!loadingProducts && visibleProducts.length === 0 && (
+                <p className="p-3 text-sm text-slate-400">{products.length === 0 ? 'No active products in this branch\u2019s business.' : 'No products match your search.'}</p>
+              )}
+              {visibleProducts.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => selectProduct(p.id)}
+                  className={`w-full flex items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-slate-50 ${productId === p.id ? 'bg-slate-900/[0.04]' : ''}`}
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium text-slate-800">{p.name}</span>
+                    <span className="block text-xs text-slate-400">{formatUnitQuantity(1, p.unit)} · {formatCurrency(Number(p.selling_price))}</span>
+                  </span>
+                  {stockByProduct[p.id] !== undefined && (
+                    <span className={`text-xs font-medium shrink-0 ${(stockByProduct[p.id] ?? 0) > 0 ? 'text-slate-400' : 'text-rose-500'}`}>
+                      {formatUnitQuantity(stockByProduct[p.id], p.unit)} in stock
+                    </span>
+                  )}
+                  {productId === p.id && <span className="text-xs font-semibold text-emerald-600 shrink-0">Selected</span>}
+                </button>
+              ))}
+            </div>
+          )}
+          {selectedProduct && (
+            <div className="rounded-lg bg-slate-50 p-3 space-y-3">
+              <div className="flex items-center justify-between text-sm">
+                <span className="font-medium text-slate-800">{selectedProduct.name}</span>
+                <span className="text-slate-500">{formatCurrency(Number(unitPrice) || 0)} per {selectedProduct.unit || 'unit'}</span>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Qty{selectedProduct.unit ? ` (${selectedProduct.unit})` : ''}</label>
+                  <div className="flex items-center gap-1">
+                    <button type="button" onClick={() => stepQuantity(-1)} className="p-2 rounded-lg border border-slate-300 text-slate-600 hover:bg-white" aria-label="Decrease quantity">
+                      <Minus size={14} />
+                    </button>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={quantity}
+                      onChange={(event) => setQuantity(event.target.value)}
+                      onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addItem(); } }}
+                      className="w-full px-2 py-2 text-sm text-center border border-slate-300 rounded-lg outline-none focus:border-slate-900"
+                    />
+                    <button type="button" onClick={() => stepQuantity(1)} className="p-2 rounded-lg border border-slate-300 text-slate-600 hover:bg-white" aria-label="Increase quantity">
+                      <Plus size={14} />
+                    </button>
+                  </div>
+                </div>
+                <Input label="Price" type="number" min="0" step="any" value={unitPrice} onChange={(event) => setUnitPrice(event.target.value)} />
+                <Input label="Discount" type="number" min="0" step="any" value={discount} onChange={(event) => setDiscount(event.target.value)} />
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-slate-500">
+                  Line total: <strong className="text-slate-800">{formatCurrency((Number(quantity) || 0) * (Number(unitPrice) || 0) - (Number(discount) || 0))}</strong>
+                  {' '}· {formatUnitQuantity(Number(quantity) || 0, selectedProduct.unit)}
+                </span>
+                <Button size="sm" onClick={addItem}><Plus size={14} /> Add item</Button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {items.length > 0 && (
+          <div className="divide-y rounded-xl border border-slate-200">
+            {items.map((item, index) => (
+              <div className="flex items-center justify-between gap-3 p-3 text-sm" key={`${item.product_id}-${index}`}>
+                <span className="min-w-0">
+                  <span className="block truncate font-medium text-slate-800">{item.product.name}</span>
+                  <span className="block text-xs text-slate-400">{formatUnitQuantity(item.quantity, item.product.unit)} @ {formatCurrency(item.unit_price)}{item.discount_value > 0 ? ` (−${formatCurrency(item.discount_value)})` : ''}</span>
+                </span>
+                <span className="font-semibold shrink-0">{formatCurrency(item.quantity * item.unit_price - item.discount_value)}</span>
+                <button className="text-rose-500 hover:text-rose-700 shrink-0" onClick={() => setItems((current) => current.filter((_, i) => i !== index))} aria-label="Remove item">
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Select label="Payment method" value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)}>
+            <option value="cash">Cash</option>
+            <option value="transfer">Bank transfer</option>
+            <option value="pos">POS</option>
+            <option value="credit">Credit</option>
+          </Select>
+          <Input
+            label="Amount paid"
+            type="number"
+            min="0"
+            step="any"
+            value={amountPaid}
+            onChange={(event) => { setAmountPaid(event.target.value); setPaidTouched(true); }}
+          />
+        </div>
+
+        <div className="rounded-xl bg-slate-50 p-4 text-center space-y-1">
+          <p className="text-xs text-slate-400">Total ({items.length} item{items.length === 1 ? '' : 's'})</p>
+          <p className="text-xl font-bold text-slate-900">{formatCurrency(total)}</p>
+          {items.length > 0 && (
+            <p className={`text-sm font-medium ${change < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+              {change < 0 ? `Balance due: ${formatCurrency(Math.abs(change))}` : `Change: ${formatCurrency(change)}`}
+            </p>
+          )}
+        </div>
+
+        <Textarea label="Notes" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Optional sale notes" />
+        {error && <p className="text-sm text-rose-600">{error}</p>}
+        <div className="flex justify-end gap-3">
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={complete} disabled={saving || items.length === 0}>{saving ? 'Saving...' : `Complete Sale · ${formatCurrency(total)}`}</Button>
+        </div>
+      </div>
+    </Modal>
+  );
 }

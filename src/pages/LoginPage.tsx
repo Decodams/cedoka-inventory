@@ -1,9 +1,9 @@
 import { useRef, useState, type FormEvent } from 'react';
-import { Lock, Mail, Eye, EyeOff, Loader2, UserPlus, Building2, MapPin, BriefcaseBusiness } from 'lucide-react';
+import { Lock, Mail, Eye, EyeOff, Loader2, UserPlus } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSupabaseQuery, supabase } from '@/hooks/useSupabaseQuery';
 import { Select } from '@/components/ui/Form';
-import type { Business, Branch, Role } from '@/types/database';
+import type { Business, Branch, Role, Unit } from '@/types/database';
 import logo from '@/logo.jpeg';
 
 export function LoginPage() {
@@ -15,6 +15,7 @@ export function LoginPage() {
   const [roleId, setRoleId] = useState('');
   const [businessId, setBusinessId] = useState('');
   const [branchId, setBranchId] = useState('');
+  const [unitId, setUnitId] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -37,9 +38,15 @@ export function LoginPage() {
     [],
     { cacheKey: 'anon:roles', ttlMs: 60_000 },
   );
+  const { data: orgUnits } = useSupabaseQuery<Unit[]>(
+    () => supabase.from('units').select('id,name,business_id,branch_id').eq('is_active', true).order('name'),
+    [],
+    { cacheKey: 'anon:units', ttlMs: 60_000 },
+  );
 
-  const registerableRoles = roles?.filter((r) => r.name !== 'super_admin' && r.name !== 'admin') ?? [];
+  const registerableRoles = roles?.filter((r) => r.name !== 'super_admin') ?? [];
   const branchOptions = branches?.filter((b) => b.business_id === businessId) ?? [];
+  const unitOptions = (orgUnits ?? []).filter((u) => u.business_id === businessId && (!u.branch_id || u.branch_id === branchId));
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -75,7 +82,7 @@ export function LoginPage() {
         return;
       }
       lastRegistrationAt.current = Date.now();
-      const { error: registrationError } = await registerStaff(fullName, email, password, selectedRole.name, businessId, branchId);
+      const { error: registrationError } = await registerStaff(fullName, email, password, selectedRole.name, businessId, branchId, unitId || undefined);
       if (registrationError) setError(registrationError);
       else {
         setSuccess('Registration submitted. An administrator must approve your account before you can sign in.');
@@ -117,13 +124,39 @@ export function LoginPage() {
 
           <form onSubmit={handleSubmit} className="space-y-5">
             {mode === 'register' && (
-              <div className="space-y-1.5">
-                <label className="block text-sm font-medium text-slate-700">Full name</label>
-                <div className="relative">
-                  <UserPlus size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input value={fullName} onChange={(e) => setFullName(e.target.value)} required autoComplete="name" placeholder="Your full name" className="w-full pl-10 pr-3.5 py-2.5 text-sm border border-slate-300 rounded-lg outline-none transition-all placeholder:text-slate-400 focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10" />
+              <>
+                <div className="space-y-1.5">
+                  <label className="block text-sm font-medium text-slate-700">Full name</label>
+                  <div className="relative">
+                    <UserPlus size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input value={fullName} onChange={(e) => setFullName(e.target.value)} required autoComplete="name" placeholder="Your full name" className="w-full pl-10 pr-3.5 py-2.5 text-sm border border-slate-300 rounded-lg outline-none transition-all placeholder:text-slate-400 focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10" />
+                  </div>
                 </div>
-              </div>
+                <Select label="Role" value={roleId} onChange={(e) => setRoleId(e.target.value)} required>
+                  <option value="">Select your role...</option>
+                  {registerableRoles.map((r) => (
+                    <option key={r.id} value={r.id}>{r.display_name}</option>
+                  ))}
+                </Select>
+                <Select label="Business" value={businessId} onChange={(e) => { setBusinessId(e.target.value); setBranchId(''); setUnitId(''); }} required>
+                  <option value="">Select your business...</option>
+                  {(businesses ?? []).map((b) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </Select>
+                <Select label="Branch" value={branchId} onChange={(e) => { setBranchId(e.target.value); setUnitId(''); }} required disabled={!businessId}>
+                  <option value="">{businessId ? 'Select your branch...' : 'Select a business first...'}</option>
+                  {branchOptions.map((b) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </Select>
+                <Select label="Unit / Department (optional)" value={unitId} onChange={(e) => setUnitId(e.target.value)} disabled={!branchId}>
+                  <option value="">{branchId ? 'Select your unit...' : 'Select a branch first...'}</option>
+                  {unitOptions.map((u) => (
+                    <option key={u.id} value={u.id}>{u.name}</option>
+                  ))}
+                </Select>
+              </>
             )}
 
             <div className="hidden" aria-hidden="true">

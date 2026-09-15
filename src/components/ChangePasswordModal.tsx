@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Loader2, Lock, KeyRound, ShieldCheck } from 'lucide-react';
+import { Loader2, KeyRound, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';

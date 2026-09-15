@@ -133,6 +133,23 @@ export interface Category {
   is_active: boolean;
 }
 
+export interface BusinessMeasurementUnit {
+  id: string;
+  business_id: string;
+  name: string;
+  description: string;
+  is_active: boolean;
+}
+
+export interface Unit {
+  id: string;
+  business_id: string;
+  branch_id: string | null;
+  name: string;
+  description: string;
+  is_active: boolean;
+}
+
 export interface Supplier {
   id: string;
   business_id: string;

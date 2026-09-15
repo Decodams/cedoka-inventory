@@ -10,7 +10,7 @@ interface AuthContextValue {
   roles: Role[];
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
-  registerStaff: (fullName: string, email: string, password: string, roleName: string, businessId: string, branchId: string) => Promise<{ error: string | null }>;
+  registerStaff: (fullName: string, email: string, password: string, roleName: string, businessId: string, branchId: string, unitId?: string) => Promise<{ error: string | null }>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -170,9 +170,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [loadProfile],
   );
 
-  const registerStaff = useCallback(async (fullName: string, email: string, password: string, roleName: string, businessId: string, branchId: string) => {
+  const registerStaff = useCallback(async (fullName: string, email: string, password: string, roleName: string, businessId: string, branchId: string, unitId?: string) => {
     const { error } = await supabase.functions.invoke('register-staff', {
-      body: { full_name: fullName.trim(), email: email.trim().toLowerCase(), password, role_name: roleName, business_id: businessId, branch_id: branchId },
+      body: { full_name: fullName.trim(), email: email.trim().toLowerCase(), password, role_name: roleName, business_id: businessId, branch_id: branchId, unit_id: unitId ?? null },
     });
     return { error: error?.message ?? null };
   }, []);
