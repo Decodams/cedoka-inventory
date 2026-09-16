@@ -69,3 +69,11 @@
 - Catalog modal: Suppliers section (add/deactivate per business).
 - Product save now edge-first (manage-product) with direct fallback + deploy guidance; multi-unit editor synced to product_units.
 - SaleModal: per-line unit selector from product units, unit persisted via RPC; responsive audit clean (tables scroll, headers wrap).
+
+## Round 5 - roles perms/units CRUD/RLS diagnostics (tsc 0, eslint 0 errors, build 0)
+- RolesManagerModal now shows permission badges per role (what each role can do).
+- New migration 202609150006: manager scope for org-units insert/update.
+- BusinessBranchPage: Units/Departments section (add/rename/deactivate per business); categories manager opened to managers.
+- Product save failures now run access diagnostics (session/profile/role/grant) with specific fix guidance.
+
+## DEPLOYED 2026-09-16: db push complete (all 30 migrations incl. 202609150001-06 applied); all 7 edge functions ACTIVE.

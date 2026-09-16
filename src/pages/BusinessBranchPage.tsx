@@ -7,8 +7,8 @@ import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { Input, Select, Textarea } from '@/components/ui/Form';
 import { Badge } from '@/components/ui/Badge';
-import { hasRole, ROLE_COLORS } from '@/lib/rbac';
-import type { Business, Branch, UserProfile, Category, RoleName } from '@/types/database';
+import { hasRole, isAtLeast, ROLE_COLORS } from '@/lib/rbac';
+import type { Business, Branch, UserProfile, Category, RoleName, Unit } from '@/types/database';
 
 type StaffWithRole = Pick<UserProfile, 'id' | 'full_name' | 'business_id' | 'branch_id'> & {
   role: { name: RoleName; display_name: string } | null;
@@ -18,11 +18,14 @@ export function BusinessBranchPage() {
   const { user } = useAuth();
   const canManageBusinesses = hasRole(user, 'super_admin');
   const canManageBranches = hasRole(user, 'super_admin', 'admin');
-  const canManageCategories = hasRole(user, 'super_admin', 'admin');
+  const canManageCategories = hasRole(user, 'super_admin', 'admin') || isAtLeast(user, 'manager');
   const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
   const [showBizModal, setShowBizModal] = useState(false);
   const [showBranchModal, setShowBranchModal] = useState(false);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [showUnitModal, setShowUnitModal] = useState(false);
+  const [unitModalBiz, setUnitModalBiz] = useState<Business | null>(null);
+  const [editingUnit, setEditingUnit] = useState<Unit | null>(null);
   const [categoryModalBiz, setCategoryModalBiz] = useState<Business | null>(null);
   const [editingBiz, setEditingBiz] = useState<Business | null>(null);
   const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
@@ -46,8 +49,13 @@ export function BusinessBranchPage() {
     { cacheKey: `ref:categories:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
   );
 
-  const { data: staff } = useSupabaseQuery<StaffWithRole[]>(
-    () =>
+  const { data: orgUnits, refetch: refetchUnits } = useSupabaseQuery<Unit[]>(
+    () => supabase.from('units').select('*').eq('is_active', true).order('name'),
+    [],
+    { cacheKey: `org:units:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
+  );
+
+  const { data: staff } = useSupabaseQuery<StaffWithRole[]>(    () =>
       supabase
         .from('user_profiles')
         .select('id, full_name, business_id, branch_id, role:roles(name, display_name)')
@@ -60,6 +68,7 @@ export function BusinessBranchPage() {
   const branchesForBusiness = (bizId: string) => branches?.filter((b) => b.business_id === bizId) ?? [];
   const categoriesForBusiness = (bizId: string) =>
     categories?.filter((c) => c.business_id === bizId) ?? [];
+  const unitsForBusiness = (bizId: string) => orgUnits?.filter((u) => u.business_id === bizId) ?? [];
   const staffForBusiness = (bizId: string) => staff?.filter((s) => s.business_id === bizId) ?? [];
   const staffForBranch = (branchId: string) => staff?.filter((s) => s.branch_id === branchId) ?? [];
 
@@ -239,6 +248,67 @@ export function BusinessBranchPage() {
                     )}
                   </div>
 
+                  {/* Units / departments scoped to this business */}
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <div className="flex items-center gap-2">
+                        <Users size={13} className="text-slate-400" />
+                        <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                          Units · {unitsForBusiness(biz.id).length}
+                        </h4>
+                      </div>
+                      {canManageCategories && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setUnitModalBiz(biz);
+                            setEditingUnit(null);
+                            setShowUnitModal(true);
+                          }}
+                        >
+                          <Plus size={14} /> Add Unit
+                        </Button>
+                      )}
+                    </div>
+                    {unitsForBusiness(biz.id).length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {unitsForBusiness(biz.id).map((u) => (
+                          <div
+                            key={u.id}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-xs text-slate-700 shadow-xs group"
+                          >
+                            <span className="font-medium">{u.name}</span>
+                            {u.branch_id && (
+                              <span className="text-slate-400">· {branchesForBusiness(biz.id).find((b) => b.id === u.branch_id)?.name ?? 'Branch'}</span>
+                            )}
+                            {canManageCategories && (
+                              <div className="flex items-center gap-1 ml-1 opacity-70 group-hover:opacity-100">
+                                <button
+                                  type="button"
+                                  title="Edit unit"
+                                  onClick={() => {
+                                    setUnitModalBiz(biz);
+                                    setEditingUnit(u);
+                                    setShowUnitModal(true);
+                                  }}
+                                  className="text-slate-400 hover:text-slate-700"
+                                >
+                                  <Pencil size={11} />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-400">
+                        No units yet for this business.{' '}
+                        {canManageCategories && 'Click "+ Add Unit" to create one.'}
+                      </p>
+                    )}
+                  </div>
+
                   {/* Roles scoped to this business — same role names can repeat per branch */}
                   <div>
                     <div className="flex items-center gap-2 mb-2">
@@ -413,6 +483,24 @@ export function BusinessBranchPage() {
             setShowCategoryModal(false);
             setEditingCategory(null);
             setCategoryModalBiz(null);
+          }}
+        />
+      )}
+      {showUnitModal && unitModalBiz && (
+        <UnitFormModal
+          business={unitModalBiz}
+          branches={branchesForBusiness(unitModalBiz.id)}
+          unit={editingUnit}
+          onClose={() => {
+            setShowUnitModal(false);
+            setEditingUnit(null);
+            setUnitModalBiz(null);
+          }}
+          onSaved={() => {
+            refetchUnits();
+            setShowUnitModal(false);
+            setEditingUnit(null);
+            setUnitModalBiz(null);
           }}
         />
       )}
@@ -688,6 +776,82 @@ function CategoryFormModal({
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button onClick={handleSave} disabled={saving}>
             {saving ? 'Saving...' : 'Save Category'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function UnitFormModal({
+  business,
+  branches,
+  unit,
+  onClose,
+  onSaved,
+}: {
+  business: Business;
+  branches: Branch[];
+  unit: Unit | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(unit?.name ?? '');
+  const [branchId, setBranchId] = useState(unit?.branch_id ?? '');
+  const [description, setDescription] = useState(unit?.description ?? '');
+  const [isActive, setIsActive] = useState(unit?.is_active ?? true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSave = async () => {
+    if (!name.trim()) {
+      setError('Unit name is required');
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    if (unit) {
+      const { error: updateErr } = await supabase.from('units').update({
+        name: name.trim(), branch_id: branchId || null,
+        description: description.trim(), is_active: isActive,
+      }).eq('id', unit.id);
+      if (updateErr) { setError(`Could not save changes: ${updateErr.message}`); setSaving(false); return; }
+    } else {
+      const { error: insertErr } = await supabase.from('units').insert({
+        business_id: business.id, name: name.trim(), branch_id: branchId || null,
+        description: description.trim(), is_active: true,
+      });
+      if (insertErr) {
+        const msg = insertErr.message.includes('duplicate') || insertErr.code === '23505'
+          ? 'This unit already exists.'
+          : `Could not create unit: ${insertErr.message}. If this persists, check that migration 202609150006 is applied.`;
+        setError(msg); setSaving(false); return;
+      }
+    }
+    setSaving(false);
+    onSaved();
+  };
+
+  return (
+    <Modal open onClose={onClose} title={unit ? 'Edit Unit' : `Add Unit to ${business.name}`} size="md">
+      <div className="space-y-4">
+        <Input label="Unit name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Produce Section, Bakery" autoFocus />
+        <Select label="Branch (optional — leave empty for all branches)" value={branchId} onChange={(e) => setBranchId(e.target.value)}>
+          <option value="">All branches</option>
+          {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+        </Select>
+        <Input label="Description (optional)" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Short description" />
+        {unit && (
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="rounded border-slate-300" />
+            Active
+          </label>
+        )}
+        {error && <p className="text-sm text-rose-600 px-1">{error}</p>}
+        <div className="flex justify-end gap-3 pt-2">
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? 'Saving...' : unit ? 'Save Changes' : 'Add Unit'}
           </Button>
         </div>
       </div>

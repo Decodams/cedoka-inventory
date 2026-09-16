@@ -9,9 +9,9 @@ CREATE TABLE IF NOT EXISTS public.units (
 );
 ALTER TABLE units ENABLE ROW LEVEL SECURITY;
 
-CREATE INDEX idx_units_business_id ON public.units (business_id);
-CREATE INDEX idx_units_branch_id ON public.units (branch_id);
-CREATE INDEX idx_units_is_active ON public.units (is_active);
+CREATE INDEX IF NOT EXISTS idx_units_business_id ON public.units (business_id);
+CREATE INDEX IF NOT EXISTS idx_units_branch_id ON public.units (branch_id);
+CREATE INDEX IF NOT EXISTS idx_units_is_active ON public.units (is_active);
 
 -- Unit-to-user assignment table (many-to-many: users can belong to multiple units)
 CREATE TABLE IF NOT EXISTS user_unit_assignments (
@@ -21,5 +21,5 @@ CREATE TABLE IF NOT EXISTS user_unit_assignments (
   assigned_at timestamptz NOT NULL DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
-CREATE INDEX idx_user_unit_assignments_user_id ON public.user_unit_assignments (user_id);
-CREATE INDEX idx_user_unit_assignments_unit_id ON public.user_unit_assignments (unit_id);
+CREATE INDEX IF NOT EXISTS idx_user_unit_assignments_user_id ON public.user_unit_assignments (user_id);
+CREATE INDEX IF NOT EXISTS idx_user_unit_assignments_unit_id ON public.user_unit_assignments (unit_id);

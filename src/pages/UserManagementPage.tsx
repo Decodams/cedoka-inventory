@@ -495,11 +495,27 @@ function RolesManagerModal({ onClose }: { onClose: () => void }) {
   const [editDescription, setEditDescription] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [permsByRole, setPermsByRole] = useState<Record<string, string[]>>({});
 
   const load = async () => {
     setLoadingRoles(true);
     const { data } = await supabase.from('roles').select('*').order('name');
     setList(((data ?? []) as Role[]).slice().sort((a, b) => a.display_name.localeCompare(b.display_name)));
+    const { data: grants } = await supabase.from('role_permissions').select('role_id, permission:permissions(code)');
+    if (grants) {
+      const map: Record<string, string[]> = {};
+      const rows = (grants as unknown) as Array<{ role_id: string; permission: Array<{ code: string }> | { code: string } | null }>;
+      for (const g of rows) {
+        const list = Array.isArray(g.permission) ? g.permission : g.permission ? [g.permission] : [];
+        for (const p of list) {
+          if (!p.code) continue;
+          if (!map[g.role_id]) map[g.role_id] = [];
+          if (!map[g.role_id].includes(p.code)) map[g.role_id].push(p.code);
+        }
+      }
+      for (const k of Object.keys(map)) map[k].sort();
+      setPermsByRole(map);
+    }
     setLoadingRoles(false);
   };
 
@@ -567,6 +583,16 @@ function RolesManagerModal({ onClose }: { onClose: () => void }) {
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-slate-800 truncate">{r.display_name}</p>
                     <p className="text-xs text-slate-400 truncate">{r.name}{r.description ? ` · ${r.description}` : ''}</p>
+                    {(permsByRole[r.id] ?? []).length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1.5">
+                        {(permsByRole[r.id] ?? []).slice(0, 8).map((code) => (
+                          <span key={code} className="inline-flex px-1.5 py-px rounded text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200">{code}</span>
+                        ))}
+                        {(permsByRole[r.id] ?? []).length > 8 && (
+                          <span className="inline-flex px-1.5 py-px rounded text-[10px] font-medium bg-slate-900 text-white">+{(permsByRole[r.id] ?? []).length - 8} more</span>
+                        )}
+                      </div>
+                    )}
                   </div>
                   {LOCKED_ROLES.has(r.name)
                     ? <Badge className="bg-slate-100 text-slate-500 border-slate-200 shrink-0">Locked</Badge>

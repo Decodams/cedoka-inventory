@@ -587,6 +587,37 @@ function ProductFormModal({
       expiry_tracking: expiryTracking,
       is_active: isActive,
     };
+    const diagnoseAccess = async (): Promise<string> => {
+      // Explains *why* the database refused the write (missing profile,
+      // inactive account, wrong role, or unapplied permission seeds).
+      try {
+        const { data: { user: authUser } } = await supabase.auth.getUser();
+        if (!authUser) return 'You are not signed in. Sign in again and retry.';
+        const { data: profile } = await supabase.from('user_profiles')
+          .select('is_active, role_id, role:roles(name,display_name)').eq('id', authUser.id).maybeSingle();
+        const typed = profile as { is_active?: boolean; role_id?: string; role?: { name?: string; display_name?: string } } | null;
+        if (!typed) return `No staff profile exists for ${authUser.email}. Ask an administrator to create and approve your account.`;
+        const roleLabel = typed.role?.display_name ?? typed.role?.name ?? 'unknown';
+        if (!typed.is_active) return `Your account (${authUser.email}) is deactivated. Ask an administrator to reactivate it.`;
+        if (typed.role_id) {
+          const { data: grants } = await supabase.from('role_permissions')
+            .select('permission:permissions(code)').eq('role_id', typed.role_id);
+          const rows = ((grants ?? []) as unknown) as Array<{ permission: Array<{ code: string }> | { code: string } | null }>;
+          const codes = rows.flatMap((g) => {
+            const p = g.permission;
+            const list = Array.isArray(p) ? p : p ? [p] : [];
+            return list.map((x) => x.code);
+          }).filter(Boolean);
+          if (!codes.includes('products.manage')) {
+            return `Your role (${roleLabel}) lacks the products.manage permission in the live database. Ask a Super Admin to run 'supabase db push' to apply all migrations (including role seeds), then reload and retry.`;
+          }
+          return `Your role (${roleLabel}) holds products.manage, so the denial is unexpected — the live database is likely behind on migrations. Ask a Super Admin to run 'supabase db push'.`;
+        }
+        return `Your profile has no role assigned. Ask an administrator to set your role.`;
+      } catch {
+        return 'If this persists, ask a Super Admin to deploy the manage-product function or grant products.manage permission.';
+      }
+    };
     const seedBalances = async (productId: string) => {
       // Automatically initialize inventory balance rows for active branches in this business
       try {
@@ -649,7 +680,7 @@ function ProductFormModal({
       const { error: e } = await supabase.from('products').update(payload).eq('id', product.id);
       if (e) {
         console.error('Update product error:', e);
-        setError(`Could not save changes: ${e.message}. If this persists, ask a Super Admin to deploy the manage-product function or grant products.manage permission.`);
+        setError(`Could not save changes: ${e.message}. ${await diagnoseAccess()}`);
         setSaving(false);
         return;
       }
@@ -658,7 +689,7 @@ function ProductFormModal({
       const { data: created, error: e } = await supabase.from('products').insert(payload).select().single();
       if (e || !created) {
         console.error('Insert product error:', e);
-        setError(`Could not create product: ${e?.message || 'Database insert error'}. If this persists, ask a Super Admin to deploy the manage-product function or grant products.manage permission.`);
+        setError(`Could not create product: ${e?.message || 'Database insert error'}. ${await diagnoseAccess()}`);
         setSaving(false);
         return;
       }
