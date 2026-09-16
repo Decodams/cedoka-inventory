@@ -16,7 +16,7 @@ type StaffWithRole = Pick<UserProfile, 'id' | 'full_name' | 'business_id' | 'bra
 
 export function BusinessBranchPage() {
   const { user } = useAuth();
-  const canManageBusinesses = hasRole(user, 'super_admin');
+  const canManageBusinesses = hasRole(user, 'super_admin', 'admin');
   const canManageBranches = hasRole(user, 'super_admin', 'admin');
   const canManageCategories = hasRole(user, 'super_admin', 'admin') || isAtLeast(user, 'manager');
   const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
@@ -520,6 +520,7 @@ function BusinessFormModal({
   const [name, setName] = useState(business?.name ?? '');
   const [category, setCategory] = useState(business?.category ?? '');
   const [description, setDescription] = useState(business?.description ?? '');
+  const [isActive, setIsActive] = useState(business?.is_active ?? true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -534,10 +535,10 @@ function BusinessFormModal({
     if (business) {
       const { error: updateError } = await supabase
         .from('businesses')
-        .update({ name: name.trim(), category: category.trim() || null, description: description.trim() })
+        .update({ name: name.trim(), category: category.trim() || null, description: description.trim(), is_active: isActive })
         .eq('id', business.id);
       if (updateError) {
-        setError('Could not save changes. Please try again.');
+        setError(`Could not save changes: ${updateError.message}`);
         setSaving(false);
         return;
       }
@@ -546,10 +547,36 @@ function BusinessFormModal({
         .from('businesses')
         .insert({ name: name.trim(), category: category.trim() || null, description: description.trim() });
       if (insertError) {
-        setError('Could not create the business. Please try again.');
+        setError(`Could not create the business: ${insertError.message}`);
         setSaving(false);
         return;
       }
+    }
+    setSaving(false);
+    onSaved();
+  };
+
+  const handleDelete = async () => {
+    if (!business) return;
+    if (!window.confirm(`Delete business "${business.name}"? Businesses with branches, products or staff cannot be deleted — they will be deactivated instead.`)) return;
+    setSaving(true);
+    setError(null);
+    const [{ count: branchCount }, { count: productCount }, { count: staffCount }] = await Promise.all([
+      supabase.from('branches').select('id', { count: 'exact', head: true }).eq('business_id', business.id),
+      supabase.from('products').select('id', { count: 'exact', head: true }).eq('business_id', business.id),
+      supabase.from('user_profiles').select('id', { count: 'exact', head: true }).eq('business_id', business.id),
+    ]);
+    if ((branchCount ?? 0) > 0 || (productCount ?? 0) > 0 || (staffCount ?? 0) > 0) {
+      const { error: deactError } = await supabase.from('businesses').update({ is_active: false }).eq('id', business.id);
+      if (deactError) { setError(`Could not deactivate business: ${deactError.message}`); setSaving(false); return; }
+      setSaving(false);
+      onSaved();
+      return;
+    }
+    const { error: deleteError } = await supabase.from('businesses').delete().eq('id', business.id);
+    if (deleteError) {
+      const { error: deactError } = await supabase.from('businesses').update({ is_active: false }).eq('id', business.id);
+      if (deactError) { setError(`Could not delete business: ${deleteError.message}`); setSaving(false); return; }
     }
     setSaving(false);
     onSaved();
@@ -577,14 +604,29 @@ function BusinessFormModal({
           onChange={(e) => setDescription(e.target.value)}
           placeholder="Brief description of this business unit"
         />
+        {business && (
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="rounded border-slate-300" />
+            Active
+          </label>
+        )}
         {error && (
           <p className="text-sm text-rose-600 px-1">{error}</p>
         )}
-        <div className="flex justify-end gap-3 pt-2">
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={handleSave} disabled={saving}>
-            {saving ? 'Saving...' : 'Save'}
-          </Button>
+        <div className="flex justify-between gap-3 pt-2">
+          <div>
+            {business && (
+              <Button variant="ghost" onClick={handleDelete} disabled={saving} className="text-rose-600 hover:text-rose-700">
+                <Trash2 size={16} /> Delete
+              </Button>
+            )}
+          </div>
+          <div className="flex gap-3">
+            <Button variant="outline" onClick={onClose}>Cancel</Button>
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? 'Saving...' : 'Save'}
+            </Button>
+          </div>
         </div>
       </div>
     </Modal>
@@ -607,6 +649,7 @@ function BranchFormModal({
   const [openingDate, setOpeningDate] = useState(branch?.opening_date ?? '');
   const [managerId, setManagerId] = useState(branch?.manager_id ?? '');
   const [managers, setManagers] = useState<UserProfile[]>([]);
+  const [isActive, setIsActive] = useState(branch?.is_active ?? true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -637,10 +680,10 @@ function BranchFormModal({
     if (branch) {
       const { error: updateError } = await supabase
         .from('branches')
-        .update({ name: name.trim(), location: location.trim(), opening_date: openingDate || null, manager_id: managerId || null })
+        .update({ name: name.trim(), location: location.trim(), opening_date: openingDate || null, manager_id: managerId || null, is_active: isActive })
         .eq('id', branch.id);
       if (updateError) {
-        setError('Could not save changes. Please try again.');
+        setError(`Could not save changes: ${updateError.message}`);
         setSaving(false);
         return;
       }
@@ -649,10 +692,24 @@ function BranchFormModal({
         .from('branches')
         .insert({ business_id: business.id, name: name.trim(), location: location.trim(), opening_date: openingDate || null, manager_id: managerId || null });
       if (insertError) {
-        setError('Could not create the branch. Please try again.');
+        setError(`Could not create the branch: ${insertError.message}`);
         setSaving(false);
         return;
       }
+    }
+    setSaving(false);
+    onSaved();
+  };
+
+  const handleDeleteBranch = async () => {
+    if (!branch) return;
+    if (!window.confirm(`Delete branch "${branch.name}"? Branches with activity cannot be deleted — they will be deactivated instead.`)) return;
+    setSaving(true);
+    setError(null);
+    const { error: deleteError } = await supabase.from('branches').delete().eq('id', branch.id);
+    if (deleteError) {
+      const { error: deactError } = await supabase.from('branches').update({ is_active: false }).eq('id', branch.id);
+      if (deactError) { setError(`Could not delete branch: ${deleteError.message}`); setSaving(false); return; }
     }
     setSaving(false);
     onSaved();
@@ -679,12 +736,27 @@ function BranchFormModal({
           <option value="">Unassigned</option>
           {managers.map((m) => <option key={m.id} value={m.id}>{m.full_name}</option>)}
         </Select>
+        {branch && (
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="rounded border-slate-300" />
+            Active
+          </label>
+        )}
         {error && <p className="text-sm text-rose-600 px-1">{error}</p>}
-        <div className="flex justify-end gap-3 pt-2">
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={handleSave} disabled={saving}>
-            {saving ? 'Saving...' : 'Save'}
-          </Button>
+        <div className="flex justify-between gap-3 pt-2">
+          <div>
+            {branch && (
+              <Button variant="ghost" onClick={handleDeleteBranch} disabled={saving} className="text-rose-600 hover:text-rose-700">
+                <Trash2 size={16} /> Delete
+              </Button>
+            )}
+          </div>
+          <div className="flex gap-3">
+            <Button variant="outline" onClick={onClose}>Cancel</Button>
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? 'Saving...' : 'Save'}
+            </Button>
+          </div>
         </div>
       </div>
     </Modal>

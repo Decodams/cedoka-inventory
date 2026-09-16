@@ -77,3 +77,9 @@
 - Product save failures now run access diagnostics (session/profile/role/grant) with specific fix guidance.
 
 ## DEPLOYED 2026-09-16: db push complete (all 30 migrations incl. 202609150001-06 applied); all 7 edge functions ACTIVE.
+
+## Round 6 - persistence/back/product-visibility/admin-org-CRUD (tsc 0, eslint 0, build 0)
+- App: current page persists across refresh (localStorage); header Back button with 20-step history.
+- ProductsPage onSaved clears product cache + resets to page 1.
+- New migration 202609150007: admin business insert/update.
+- BusinessBranchPage: admin business CRUD; business/branch Active toggles + Delete with guard (delete or deactivate fallback).

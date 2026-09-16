@@ -13,6 +13,7 @@ import {
   LogOut,
   Menu,
   X,
+  ArrowLeft,
   ChevronDown,
   ClipboardCheck,
   DollarSign,
@@ -92,10 +93,12 @@ const SECTION_LABELS: Record<NavItem['section'], string> = {
 interface AppShellProps {
   currentPage: PageKey;
   onPageChange: (page: PageKey) => void;
+  onBack?: () => void;
+  canGoBack?: boolean;
   children: ReactNode;
 }
 
-export function AppShell({ currentPage, onPageChange, children }: AppShellProps) {
+export function AppShell({ currentPage, onPageChange, onBack, canGoBack, children }: AppShellProps) {
   const { user, signOut } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -233,6 +236,16 @@ export function AppShell({ currentPage, onPageChange, children }: AppShellProps)
             >
               <Menu size={20} />
             </button>
+            {canGoBack && (
+              <button
+                onClick={onBack}
+                aria-label="Go back to previous page"
+                title="Back"
+                className="p-2 rounded-lg text-slate-500 hover:bg-slate-100"
+              >
+                <ArrowLeft size={20} />
+              </button>
+            )}
             <h1 className="text-base font-semibold text-slate-900">
               {currentItem?.label ?? 'Dashboard'}
             </h1>

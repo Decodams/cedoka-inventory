@@ -27,9 +27,53 @@ const ServicesPage = lazy(() => import('@/pages/ServicesPage').then(m => ({ defa
 const LocationsPage = lazy(() => import('@/pages/LocationsPage').then(m => ({ default: m.LocationsPage })));
 const WorkflowsPage = lazy(() => import('@/pages/WorkflowsPage').then(m => ({ default: m.WorkflowsPage })));
 
+const PAGE_STORAGE_KEY = 'cedoka:page';
+
+const ALL_PAGES: PageKey[] = [
+  'dashboard', 'businesses', 'users', 'reports', 'reconciliation', 'products',
+  'inventory', 'issues', 'activities', 'transfers', 'procurement', 'sales',
+  'expenses', 'departments', 'teams', 'customers', 'services', 'locations',
+  'workflows', 'audit',
+];
+
+function loadSavedPage(): PageKey {
+  try {
+    const saved = window.localStorage.getItem(PAGE_STORAGE_KEY);
+    if (saved && (ALL_PAGES as string[]).includes(saved)) return saved as PageKey;
+  } catch {
+    // storage unavailable — fall through to dashboard
+  }
+  return 'dashboard';
+}
+
 function AppContent() {
   const { user, loading } = useAuth();
-  const [currentPage, setCurrentPage] = useState<PageKey>('dashboard');
+  const [currentPage, setCurrentPage] = useState<PageKey>(loadSavedPage);
+  const [pageHistory, setPageHistory] = useState<PageKey[]>([]);
+
+  const goToPage = (page: PageKey) => {
+    if (page !== currentPage) {
+      setPageHistory((h) => [...h.slice(-19), currentPage]);
+    }
+    setCurrentPage(page);
+    try {
+      window.localStorage.setItem(PAGE_STORAGE_KEY, page);
+    } catch {
+      // storage unavailable — page simply won't persist
+    }
+  };
+
+  const goBack = () => {
+    const prev = pageHistory[pageHistory.length - 1];
+    if (!prev) return;
+    setPageHistory((h) => h.slice(0, -1));
+    setCurrentPage(prev);
+    try {
+      window.localStorage.setItem(PAGE_STORAGE_KEY, prev);
+    } catch {
+      // ignore
+    }
+  };
 
   if (loading) {
     return (
@@ -95,7 +139,7 @@ function AppContent() {
   };
 
   return (
-    <AppShell currentPage={currentPage} onPageChange={setCurrentPage}>
+    <AppShell currentPage={currentPage} onPageChange={goToPage} onBack={goBack} canGoBack={pageHistory.length > 0}>
       <Suspense fallback={<div className="p-8 flex justify-center"><LoadingState message="Loading page..." /></div>}>
         {renderPage()}
       </Suspense>

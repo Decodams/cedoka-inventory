@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Package, Plus, Pencil, Search, Tag, Trash2 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { useSupabaseQuery, supabase } from '@/hooks/useSupabaseQuery';
+import { useSupabaseQuery, supabase, clearQueryCache } from '@/hooks/useSupabaseQuery';
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
@@ -220,7 +220,7 @@ export function ProductsPage() {
           canDelete={canDeleteProduct}
           measurementUnits={measurementUnits ?? []}
           onClose={() => { setShowModal(false); setEditing(null); }}
-          onSaved={(message) => { refetch(); refetchCategories(); refetchMeasurementUnits(); setShowModal(false); setEditing(null); if (message) setNotice(message); }}
+          onSaved={(message) => { clearQueryCache('products:'); setPage(1); refetch(); refetchCategories(); refetchMeasurementUnits(); setShowModal(false); setEditing(null); if (message) setNotice(message); }}
         />
       )}
 
