@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/Badge';
 import { formatCurrency } from '@/lib/dateUtils';
 import { isAtLeast, hasRole } from '@/lib/rbac';
 import { isFarmBusiness, unitOptionsFor } from '@/lib/business';
+import { edgeErrorMessage } from '@/lib/edge';
 import type { Product, Business, BusinessMeasurementUnit, Category, Supplier, UserProfile } from '@/types/database';
 
 export function ProductsPage() {
@@ -671,7 +672,7 @@ function ProductFormModal({
       return;
     }
     if (!String(fnError.message || '').includes('Failed to send a request')) {
-      setError(fnError.message || (product ? 'Could not save changes.' : 'Could not create the product.'));
+      setError(await edgeErrorMessage(fnError, product ? 'Could not save changes.' : 'Could not create the product.'));
       setSaving(false);
       return;
     }

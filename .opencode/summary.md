@@ -83,3 +83,10 @@
 - ProductsPage onSaved clears product cache + resets to page 1.
 - New migration 202609150007: admin business insert/update.
 - BusinessBranchPage: admin business CRUD; business/branch Active toggles + Delete with guard (delete or deactivate fallback).
+
+## Round 7 - non-2xx root causes fixed + deployed (tsc 0, eslint 0, build 0)
+- manage-product update: stripped p_action/p_product_id leaking into DB patch (every product EDIT failed).
+- create-user-account: replaced role matrix (super_admin anything; admin anything-but-super_admin; manager junior+custom). UI lists aligned.
+- Re-added src/lib/edge.ts unwrapper; product/user saves now show real server messages.
+- New migration 202609150008 (roles.is_active) + role activate/deactivate + inactive filtered from pickers.
+- DEPLOYED from here: db push (150007+150008), functions deploy manage-product + create-user-account.

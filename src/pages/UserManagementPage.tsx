@@ -8,6 +8,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Input, Select } from '@/components/ui/Form';
 import { Badge } from '@/components/ui/Badge';
 import { ROLE_COLORS, hasRole, isAtLeast, canCreateRole } from '@/lib/rbac';
+import { edgeErrorMessage } from '@/lib/edge';
 import type { UserProfile, Business, Branch, Role, RoleName, Unit } from '@/types/database';
 
 const ROLE_RANK: Record<string, number> = {
@@ -239,11 +240,11 @@ function EditUserModal({
   }, [user]);
 
   const availableRoles = roles.filter((r) => {
-    if (hasRole(currentUser, 'super_admin')) return ['super_admin', 'admin', 'manager', 'sales_person', 'supervisor'].includes(r.name);
-    if (hasRole(currentUser, 'admin')) return ['admin', 'manager', 'sales_person', 'supervisor'].includes(r.name);
-    if (hasRole(currentUser, 'manager')) return ['sales_person', 'supervisor'].includes(r.name);
+    if (hasRole(currentUser, 'super_admin')) return true;
+    if (hasRole(currentUser, 'admin')) return r.name !== 'super_admin';
+    if (hasRole(currentUser, 'manager')) return !['super_admin', 'admin', 'manager'].includes(r.name);
     return canCreateRole(currentUser, r.name as RoleName);
-  });
+  }).filter((r) => r.is_active !== false);
 
   const autoRoleId = useMemo(() => {
     const rn = (user.role as { name?: string } | null)?.name;
@@ -284,7 +285,7 @@ function EditUserModal({
     const payload = { p_user_id: user.id, p_role_name: selectedRoleName, p_business_id: businessId || null, p_branch_id: branchIds[0] ?? null };
     const { error: err } = await supabase.functions.invoke('update-user-role', { body: payload });
     if (err && !String(err.message || '').includes('Failed to send a request')) {
-      setError(err.message || 'Could not update the user.');
+      setError(await edgeErrorMessage(err, 'Could not update the user.'));
       setSaving(false);
       return;
     }
@@ -391,11 +392,11 @@ function CreateUserModal({
   const [error, setError] = useState<string | null>(null);
 
   const availableRoles = roles.filter((r) => {
-    if (hasRole(currentUser, 'super_admin')) return r.name === 'super_admin';
-    if (hasRole(currentUser, 'admin')) return ['admin', 'manager', 'sales_person', 'supervisor'].includes(r.name);
-    if (hasRole(currentUser, 'manager')) return ['sales_person', 'supervisor'].includes(r.name);
+    if (hasRole(currentUser, 'super_admin')) return true;
+    if (hasRole(currentUser, 'admin')) return r.name !== 'super_admin';
+    if (hasRole(currentUser, 'manager')) return !['super_admin', 'admin', 'manager'].includes(r.name);
     return canCreateRole(currentUser, r.name as RoleName);
-  });
+  }).filter((r) => r.is_active !== false);
 
   const autoDetectedRoleId = useMemo(() => {
     if (hasRole(currentUser, 'super_admin')) return roles.find((r) => r.name === 'super_admin')?.id;
@@ -438,7 +439,7 @@ function CreateUserModal({
     const { error: createError } = await supabase.functions.invoke('create-user-account', {
       body: { p_email: email.trim(), p_password: password, p_full_name: fullName.trim(), p_role_name: selectedRoleName, p_business_id: needsBusiness ? businessId || null : null, p_branch_ids: needsBranch ? branchIds.length > 0 ? branchIds : [] : [], },
     });
-    if (createError) { setError(createError.message || 'Could not create the user account.'); setSaving(false); return; }
+    if (createError) { setError(await edgeErrorMessage(createError, 'Could not create the user account.')); setSaving(false); return; }
     setSaving(false); onSaved();
   };
 
@@ -550,8 +551,15 @@ function RolesManagerModal({ onClose }: { onClose: () => void }) {
     setEditingId(null); await load(); setBusy(false);
   };
 
-  const handleDelete = async (r: Role) => {
-    if (LOCKED_ROLES.has(r.name)) { setError('Super Admin and Admin roles are locked and cannot be deleted.'); return; }
+  const handleToggleActive = async (r: Role) => {
+    if (LOCKED_ROLES.has(r.name)) { setError('Super Admin and Admin roles are locked.'); return; }
+    setBusy(true); setError(null);
+    const { error: toggleErr } = await supabase.from('roles').update({ is_active: !r.is_active }).eq('id', r.id);
+    if (toggleErr) { setError(`Could not update role: ${toggleErr.message}`); setBusy(false); return; }
+    await load(); setBusy(false);
+  };
+
+  const handleDelete = async (r: Role) => {    if (LOCKED_ROLES.has(r.name)) { setError('Super Admin and Admin roles are locked and cannot be deleted.'); return; }
     const { count } = await supabase.from('user_profiles').select('id', { count: 'exact', head: true }).eq('role_id', r.id);
     if ((count ?? 0) > 0) { setError(`Cannot delete "${r.display_name}" — ${count} user${count === 1 ? '' : 's'} still ${count === 1 ? 'has' : 'have'} this role. Reassign them first.`); return; }
     if (!window.confirm(`Delete role "${r.display_name}"? This cannot be undone.`)) return;
@@ -598,6 +606,10 @@ function RolesManagerModal({ onClose }: { onClose: () => void }) {
                     ? <Badge className="bg-slate-100 text-slate-500 border-slate-200 shrink-0">Locked</Badge>
                     : (
                       <>
+                        {!r.is_active && <Badge className="bg-gray-100 text-gray-500 border-gray-200 shrink-0">Inactive</Badge>}
+                        <button onClick={() => handleToggleActive(r)} className="px-2 py-1 rounded-lg text-xs font-medium text-slate-500 hover:bg-slate-100 shrink-0" title={r.is_active ? 'Deactivate role' : 'Reactivate role'}>
+                          {r.is_active ? 'Deactivate' : 'Reactivate'}
+                        </button>
                         <button onClick={() => startEdit(r)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 shrink-0" title="Edit role">
                           <Pencil size={14} />
                         </button>

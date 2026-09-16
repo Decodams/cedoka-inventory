@@ -25,9 +25,24 @@ Deno.serve(async (request) => {
   if (actorError) return reply({ error: actorError.message }, 500);
   const actorRole = (actor?.role as { name?: string } | null)?.name;
   if (!actor?.is_active) return reply({ error: 'Not authorized' }, 403);
-  if (actorRole !== 'super_admin' && !(actorRole === 'admin' && ['manager', 'sales_person'].includes(body.p_role_name)) && !(actorRole === 'manager' && body.p_role_name === 'sales_person')) return reply({ error: 'Not authorized to create this role' }, 403);
+  // Role matrix: Super Admin can create any role; Admin anything but Super Admin;
+  // Manager anything but Super Admin/Admin/Manager; others are denied here.
+  const MANAGER_CREATABLE = new Set(['sales_person', 'supervisor', 'farm_operations_officer']);
+  const roleName = body.p_role_name;
   if (actorRole === 'super_admin') {
-    if (body.p_role_name !== 'super_admin') return reply({ error: 'Super Admin can only create another Super Admin account' }, 403);
+    // allowed — Super Admin cap for new Super Admins is checked below
+  } else if (actorRole === 'admin') {
+    if (roleName === 'super_admin') return reply({ error: 'Only a Super Admin can create another Super Admin' }, 403);
+  } else if (actorRole === 'manager') {
+    const { data: knownRole } = await admin.from('roles').select('name').eq('name', roleName).maybeSingle();
+    const roleKey = (knownRole?.name ?? roleName) as string;
+    if (['super_admin', 'admin', 'manager'].includes(roleKey) && !MANAGER_CREATABLE.has(roleKey)) {
+      return reply({ error: 'Managers can only create junior staff roles' }, 403);
+    }
+  } else {
+    return reply({ error: 'Not authorized to create users' }, 403);
+  }
+  if (roleName === 'super_admin') {
     const { data: superAdminRole } = await admin.from('roles').select('id').eq('name', 'super_admin').maybeSingle();
     if (!superAdminRole) return reply({ error: 'Super Admin role is not configured' }, 500);
     const { count: superAdminCount, error: countError } = await admin.from('user_profiles').select('id', { count: 'exact', head: true }).eq('role_id', superAdminRole.id);

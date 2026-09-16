@@ -158,7 +158,7 @@ Deno.serve(async (request) => {
   }
   const patch: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(fields)) {
-    if (key === 'business_id') continue;
+    if (key === 'business_id' || key === 'p_action' || key === 'p_product_id') continue;
     if (value !== undefined) patch[key] = value;
   }
   if (Object.keys(patch).length === 0) return reply({ error: 'Nothing to update' }, 400);

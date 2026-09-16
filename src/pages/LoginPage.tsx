@@ -44,7 +44,7 @@ export function LoginPage() {
     { cacheKey: 'anon:units', ttlMs: 60_000 },
   );
 
-  const registerableRoles = roles?.filter((r) => r.name !== 'super_admin') ?? [];
+  const registerableRoles = roles?.filter((r) => r.name !== 'super_admin' && r.is_active !== false) ?? [];
   const branchOptions = branches?.filter((b) => b.business_id === businessId) ?? [];
   const unitOptions = (orgUnits ?? []).filter((u) => u.business_id === businessId && (!u.branch_id || u.branch_id === branchId));
 

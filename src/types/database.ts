@@ -96,6 +96,7 @@ export interface Role {
   display_name: string;
   description: string;
   is_system: boolean;
+  is_active: boolean;
 }
 
 export interface Permission {
