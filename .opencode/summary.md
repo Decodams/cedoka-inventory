@@ -62,3 +62,10 @@
 - Category manager modal has Measurement Units section (add/delete per business); product form unit presets come from it with static fallback.
 - Registration shows all roles except super_admin + org unit select; register-staff allows admin requests (pending approval) and stores unit assignment.
 - Edit member: unit/department multi-select (super_admin/admin) persisted to user_unit_assignments.
+
+## Round 4 - roles/suppliers/multi-unit/responsive (tsc 0, eslint 0 errors, build 0)
+- New migration 202609150005: roles write RLS (super_admin/admin; delete blocks locked roles) + product_units table + sale_items.unit + RPC stores line unit.
+- Roles manager modal in UserManagementPage (add/edit display, delete with in-use guard, locked badges).
+- Catalog modal: Suppliers section (add/deactivate per business).
+- Product save now edge-first (manage-product) with direct fallback + deploy guidance; multi-unit editor synced to product_units.
+- SaleModal: per-line unit selector from product units, unit persisted via RPC; responsive audit clean (tables scroll, headers wrap).

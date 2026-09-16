@@ -48,7 +48,7 @@ export function ProductsPage() {
     { cacheKey: `ref:munits:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
   );
 
-  const { data: suppliers } = useSupabaseQuery<Supplier[]>(
+  const { data: suppliers, refetch: refetchSuppliers } = useSupabaseQuery<Supplier[]>(
     () => supabase.from('suppliers').select('*').eq('is_active', true).order('name'),
     [],
     { cacheKey: `ref:suppliers:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
@@ -92,7 +92,7 @@ export function ProductsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-slate-900">Products</h2>
           <p className="text-sm text-slate-500 mt-0.5">Manage your product catalog across business units.</p>
@@ -229,9 +229,10 @@ export function ProductsPage() {
           businesses={businesses ?? []}
           categories={categories ?? []}
           measurementUnits={measurementUnits ?? []}
+          suppliers={suppliers ?? []}
           currentUser={user}
           onClose={() => setShowCategories(false)}
-          onChanged={() => { refetchCategories(); refetchMeasurementUnits(); }}
+          onChanged={() => { refetchCategories(); refetchMeasurementUnits(); refetchSuppliers(); }}
         />
       )}
     </div>
@@ -239,11 +240,12 @@ export function ProductsPage() {
 }
 
 function CategoryManagerModal({
-  businesses, categories, measurementUnits, currentUser, onClose, onChanged,
+  businesses, categories, measurementUnits, suppliers, currentUser, onClose, onChanged,
 }: {
   businesses: Business[];
   categories: Category[];
   measurementUnits: BusinessMeasurementUnit[];
+  suppliers: Supplier[];
   currentUser: UserProfile | null;
   onClose: () => void;
   onChanged: () => void;
@@ -284,6 +286,34 @@ function CategoryManagerModal({
     setBusy(true); setError(null);
     const { error: unitErr } = await supabase.from('business_measurement_units').delete().eq('id', unitId);
     if (unitErr) { setError(unitErr.message); setBusy(false); return; }
+    onChanged(); setBusy(false);
+  };
+
+  const [supplierName, setSupplierName] = useState('');
+  const [supplierPhone, setSupplierPhone] = useState('');
+  const supplierList = suppliers.filter((s) => !businessId || s.business_id === businessId);
+
+  const handleAddSupplier = async () => {
+    if (!businessId) { setError('Select a business first.'); return; }
+    if (!supplierName.trim()) { setError('Supplier name is required.'); return; }
+    setBusy(true); setError(null);
+    const { error: supErr } = await supabase.from('suppliers').insert({
+      business_id: businessId, name: supplierName.trim(),
+      contact_person: null, phone: supplierPhone.trim() || null,
+      email: null, address: null, is_active: true,
+    });
+    if (supErr) {
+      setError(supErr.message.includes('duplicate') || supErr.code === '23505' ? 'This supplier already exists.' : supErr.message);
+      setBusy(false);
+      return;
+    }
+    setSupplierName(''); setSupplierPhone(''); onChanged(); setBusy(false);
+  };
+
+  const handleToggleSupplier = async (s: Supplier) => {
+    setBusy(true); setError(null);
+    const { error: supErr } = await supabase.from('suppliers').update({ is_active: !s.is_active }).eq('id', s.id);
+    if (supErr) { setError(supErr.message); setBusy(false); return; }
     onChanged(); setBusy(false);
   };
 
@@ -424,6 +454,30 @@ function CategoryManagerModal({
             </div>
           </div>
         </div>
+        <div className="rounded-xl border border-slate-200 p-4 space-y-3">
+          <p className="text-sm font-semibold text-slate-800">Suppliers for this business</p>
+          {supplierList.length === 0 && <p className="text-sm text-slate-400">No suppliers yet.</p>}
+          <div className="divide-y divide-slate-100 rounded-lg border border-slate-100 max-h-40 overflow-y-auto">
+            {supplierList.map((s) => (
+              <div key={s.id} className="flex items-center gap-2 p-2.5">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-slate-800 truncate">{s.name}</p>
+                  <p className="text-xs text-slate-400 truncate">{[s.phone, !s.is_active ? 'Inactive' : ''].filter(Boolean).join(' · ') || 'Active'}</p>
+                </div>
+                <button onClick={() => handleToggleSupplier(s)} className="px-2.5 py-1 rounded-lg text-xs font-medium text-slate-500 hover:bg-slate-100 shrink-0" title={s.is_active ? 'Deactivate supplier' : 'Reactivate supplier'}>
+                  {s.is_active ? 'Deactivate' : 'Reactivate'}
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Input label="New supplier" value={supplierName} onChange={(e) => setSupplierName(e.target.value)} placeholder="e.g. Adaeze Farms" />
+            <Input label="Phone (optional)" value={supplierPhone} onChange={(e) => setSupplierPhone(e.target.value)} placeholder="e.g. 0803..." />
+          </div>
+          <div className="flex justify-end">
+            <Button onClick={handleAddSupplier} disabled={busy}>{busy ? 'Saving...' : 'Add Supplier'}</Button>
+          </div>
+        </div>
         {error && <p className="text-sm text-rose-600">{error}</p>}
         <div className="flex justify-end">
           <Button variant="outline" onClick={onClose}>Done</Button>
@@ -458,6 +512,18 @@ function ProductFormModal({
   const [model, setModel] = useState(product?.model ?? '');
   const [description, setDescription] = useState(product?.description ?? '');
   const [unit, setUnit] = useState(product?.unit ?? '');
+  const [extraUnits, setExtraUnits] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!product) { setExtraUnits([]); return; }
+    supabase.from('product_units').select('unit_name').eq('product_id', product.id).then(({ data }) => {
+      if (data) {
+        setExtraUnits(
+          (data as Array<{ unit_name: string }>).map((r) => r.unit_name).filter((n) => n && n !== product.unit),
+        );
+      }
+    });
+  }, [product]);
   const [costPrice, setCostPrice] = useState(product?.cost_price?.toString() ?? '0');
   const [sellingPrice, setSellingPrice] = useState(product?.selling_price?.toString() ?? '0');
   const [minStock, setMinStock] = useState(product?.min_stock_level?.toString() ?? '0');
@@ -521,23 +587,7 @@ function ProductFormModal({
       expiry_tracking: expiryTracking,
       is_active: isActive,
     };
-    if (product) {
-      const { error: e } = await supabase.from('products').update(payload).eq('id', product.id);
-      if (e) {
-        console.error('Update product error:', e);
-        setError(`Could not save changes: ${e.message}`);
-        setSaving(false);
-        return;
-      }
-    } else {
-      const { data: created, error: e } = await supabase.from('products').insert(payload).select().single();
-      if (e || !created) {
-        console.error('Insert product error:', e);
-        setError(`Could not create product: ${e?.message || 'Database insert error'}`);
-        setSaving(false);
-        return;
-      }
-
+    const seedBalances = async (productId: string) => {
       // Automatically initialize inventory balance rows for active branches in this business
       try {
         const { data: bizBranches } = await supabase
@@ -548,8 +598,8 @@ function ProductFormModal({
 
         if (bizBranches && bizBranches.length > 0) {
           const balances = bizBranches.map((br) => ({
-            product_id: created.id,
-            branch_id: br.id,
+            product_id: productId,
+            branch_id: (br as { id: string }).id,
             opening_stock: 0,
             current_stock: 0,
             min_stock_level: Number(minStock || 0),
@@ -560,6 +610,60 @@ function ProductFormModal({
       } catch (balanceErr) {
         console.warn('Auto balance seeding note:', balanceErr);
       }
+    };
+    const syncUnits = async (productId: string) => {
+      // Extra sale units (e.g. eggs per crate/dozen/piece). Non-blocking: the
+      // primary unit on the product row always works even if this table is missing.
+      try {
+        const desired = [...new Set([unit.trim(), ...extraUnits.map((u) => u.trim())].filter(Boolean))];
+        await supabase.from('product_units').delete().eq('product_id', productId);
+        if (desired.length > 0) {
+          const { error: unitErr } = await supabase.from('product_units').insert(
+            desired.map((unit_name) => ({ product_id: productId, unit_name, is_default: unit_name === unit.trim() })),
+          );
+          if (unitErr) console.warn('Product units sync note:', unitErr.message);
+        }
+      } catch (unitErr) {
+        console.warn('Product units sync note:', unitErr);
+      }
+    };
+    // Primary path: manage-product edge function (role-checked, bypasses RLS).
+    const { data: edgeData, error: fnError } = await supabase.functions.invoke('manage-product', {
+      body: product ? { p_action: 'update', p_product_id: product.id, ...payload } : { p_action: 'create', ...payload },
+    });
+    if (!fnError) {
+      const savedId = product ? product.id : (edgeData as { product?: { id: string } } | null)?.product?.id;
+      if (!product && savedId) await seedBalances(savedId);
+      if (savedId) await syncUnits(savedId);
+      setSaving(false);
+      onSaved(product ? 'Product updated successfully.' : 'Product created successfully.');
+      return;
+    }
+    if (!String(fnError.message || '').includes('Failed to send a request')) {
+      setError(fnError.message || (product ? 'Could not save changes.' : 'Could not create the product.'));
+      setSaving(false);
+      return;
+    }
+    // Fallback: direct table write (works when the caller holds products.manage).
+    if (product) {
+      const { error: e } = await supabase.from('products').update(payload).eq('id', product.id);
+      if (e) {
+        console.error('Update product error:', e);
+        setError(`Could not save changes: ${e.message}. If this persists, ask a Super Admin to deploy the manage-product function or grant products.manage permission.`);
+        setSaving(false);
+        return;
+      }
+      await syncUnits(product.id);
+    } else {
+      const { data: created, error: e } = await supabase.from('products').insert(payload).select().single();
+      if (e || !created) {
+        console.error('Insert product error:', e);
+        setError(`Could not create product: ${e?.message || 'Database insert error'}. If this persists, ask a Super Admin to deploy the manage-product function or grant products.manage permission.`);
+        setSaving(false);
+        return;
+      }
+      await seedBalances((created as { id: string }).id);
+      await syncUnits((created as { id: string }).id);
     }
 
     setSaving(false);
@@ -619,17 +723,29 @@ function ProductFormModal({
               <Input label="Model" value={model} onChange={(e) => setModel(e.target.value)} />
             </>
           )}
-          <div className="space-y-1.5">
+          <div className="space-y-1.5 sm:col-span-2">
             <Input
-              label={isFarm ? 'Unit (bag, crate, basket, kilo, unit...)' : 'Unit'}
+              label={isFarm ? 'Primary unit (bag, crate, basket, kilo, unit...)' : 'Primary unit'}
               value={unit}
               onChange={(e) => setUnit(e.target.value)}
-              placeholder={isFarm ? 'e.g. bag' : 'e.g. pcs'}
+              placeholder={isFarm ? 'e.g. crate' : 'e.g. pcs'}
               list="product-unit-options"
             />
             <datalist id="product-unit-options">
               {unitPresets.map((u) => <option key={u} value={u} />)}
             </datalist>
+            <div className="flex flex-wrap gap-2 pt-1">
+              <span className="w-full text-xs text-slate-500">Also sold as (e.g. eggs per crate, dozen or piece):</span>
+              {unitPresets.filter((u) => u !== unit.trim()).map((u) => (
+                <div
+                  key={u}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium cursor-pointer select-none ${extraUnits.includes(u) ? 'bg-slate-900 text-white' : 'border border-slate-300 text-slate-600 hover:bg-slate-50'}`}
+                  onClick={() => { setExtraUnits((prev) => (extraUnits.includes(u) ? prev.filter((x) => x !== u) : [...prev, u])); }}
+                >
+                  {u}
+                </div>
+              ))}
+            </div>
           </div>
           <Select label="Category" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
             <option value="">None</option>

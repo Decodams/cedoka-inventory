@@ -1,5 +1,5 @@
 ﻿import { useState, useMemo, useEffect } from 'react';
-import { UserPlus, Users, Power, Mail, MapPin, Check, XCircle, Pencil, Trash2 } from 'lucide-react';
+import { UserPlus, Users, Power, Mail, MapPin, Check, XCircle, Pencil, Trash2, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSupabaseQuery, supabase } from '@/hooks/useSupabaseQuery';
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States';
@@ -27,6 +27,7 @@ export function UserManagementPage() {
   const pageSize = 30;
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
   const [deletingUser, setDeletingUser] = useState<UserProfile | null>(null);
+  const [showRoles, setShowRoles] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -97,14 +98,21 @@ export function UserManagementPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-slate-900">User Management</h2>
           <p className="text-sm text-slate-500 mt-0.5">Create and manage user accounts. Role permissions are scoped automatically.</p>
         </div>
-        <Button onClick={() => { setSuccess(null); setShowModal(true); }} disabled={hasRole(user, 'super_admin') && (profiles?.filter((p) => p.role?.name === 'super_admin').length ?? 0) >= 2}>
-          <UserPlus size={18} /> Add User
-        </Button>
+        <div className="flex flex-wrap gap-2 justify-end">
+          {(hasRole(user, 'super_admin') || hasRole(user, 'admin')) && (
+            <Button variant="outline" onClick={() => setShowRoles(true)}>
+              <ShieldCheck size={18} /> Roles
+            </Button>
+          )}
+          <Button onClick={() => { setSuccess(null); setShowModal(true); }} disabled={hasRole(user, 'super_admin') && (profiles?.filter((p) => p.role?.name === 'super_admin').length ?? 0) >= 2}>
+            <UserPlus size={18} /> Add User
+          </Button>
+        </div>
       </div>
       {success && <p role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{success}</p>}
       {actionError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{actionError}</p>}
@@ -201,6 +209,9 @@ export function UserManagementPage() {
             </div>
           </div>
         </Modal>
+      )}
+      {showRoles && (
+        <RolesManagerModal onClose={() => setShowRoles(false)} />
       )}
     </div>
   );
@@ -465,6 +476,129 @@ function CreateUserModal({
         <div className="flex justify-end gap-3 pt-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button onClick={handleSave} disabled={saving}>{saving ? 'Creating...' : 'Create User'}</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+const LOCKED_ROLES = new Set(['super_admin', 'admin']);
+
+function RolesManagerModal({ onClose }: { onClose: () => void }) {
+  const [list, setList] = useState<Role[]>([]);
+  const [loadingRoles, setLoadingRoles] = useState(true);
+  const [name, setName] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [description, setDescription] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDisplay, setEditDisplay] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = async () => {
+    setLoadingRoles(true);
+    const { data } = await supabase.from('roles').select('*').order('name');
+    setList(((data ?? []) as Role[]).slice().sort((a, b) => a.display_name.localeCompare(b.display_name)));
+    setLoadingRoles(false);
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const handleCreate = async () => {
+    const key = name.trim().toLowerCase();
+    if (!/^[a-z][a-z0-9_]*$/.test(key)) { setError('Role key must start with a letter and contain only lowercase letters, numbers and underscores (e.g. store_keeper).'); return; }
+    if (!displayName.trim()) { setError('Display name is required.'); return; }
+    setBusy(true); setError(null);
+    const { error: createErr } = await supabase.from('roles').insert({
+      name: key, display_name: displayName.trim(), description: description.trim(), is_system: false,
+    });
+    if (createErr) {
+      setError(createErr.message.includes('duplicate') || createErr.code === '23505' ? 'This role already exists.' : `Could not create role: ${createErr.message}`);
+      setBusy(false);
+      return;
+    }
+    setName(''); setDisplayName(''); setDescription('');
+    await load(); setBusy(false);
+  };
+
+  const startEdit = (r: Role) => { setEditingId(r.id); setEditDisplay(r.display_name); setEditDescription(r.description ?? ''); setError(null); };
+
+  const handleUpdate = async (r: Role) => {
+    if (!editDisplay.trim()) { setError('Display name is required.'); return; }
+    setBusy(true); setError(null);
+    const { error: updateErr } = await supabase.from('roles').update({
+      display_name: editDisplay.trim(), description: editDescription.trim(),
+    }).eq('id', r.id);
+    if (updateErr) { setError(`Could not update role: ${updateErr.message}`); setBusy(false); return; }
+    setEditingId(null); await load(); setBusy(false);
+  };
+
+  const handleDelete = async (r: Role) => {
+    if (LOCKED_ROLES.has(r.name)) { setError('Super Admin and Admin roles are locked and cannot be deleted.'); return; }
+    const { count } = await supabase.from('user_profiles').select('id', { count: 'exact', head: true }).eq('role_id', r.id);
+    if ((count ?? 0) > 0) { setError(`Cannot delete "${r.display_name}" — ${count} user${count === 1 ? '' : 's'} still ${count === 1 ? 'has' : 'have'} this role. Reassign them first.`); return; }
+    if (!window.confirm(`Delete role "${r.display_name}"? This cannot be undone.`)) return;
+    setBusy(true); setError(null);
+    const { error: deleteErr } = await supabase.from('roles').delete().eq('id', r.id);
+    if (deleteErr) { setError(`Could not delete role: ${deleteErr.message}`); setBusy(false); return; }
+    await load(); setBusy(false);
+  };
+
+  return (
+    <Modal open onClose={onClose} title="Manage Roles" size="md">
+      <div className="space-y-4">
+        <p className="text-xs text-slate-500">Roles defined here are the roles that exist in the system. Role keys are permanent once created. Super Admin and Admin are locked and cannot be deleted.</p>
+        <div className="rounded-xl border border-slate-200 divide-y max-h-72 overflow-y-auto">
+          {loadingRoles && <p className="p-4 text-sm text-slate-400">Loading roles...</p>}
+          {!loadingRoles && list.map((r) => (
+            <div key={r.id} className="flex items-center gap-2 p-3">
+              {editingId === r.id ? (
+                <>
+                  <div className="flex-1 space-y-2">
+                    <input value={editDisplay} onChange={(e) => setEditDisplay(e.target.value)} className="w-full px-3 py-1.5 text-sm border border-slate-300 rounded-lg outline-none focus:border-slate-900" autoFocus />
+                    <input value={editDescription} onChange={(e) => setEditDescription(e.target.value)} placeholder="Description" className="w-full px-3 py-1.5 text-sm border border-slate-300 rounded-lg outline-none focus:border-slate-900" />
+                  </div>
+                  <Button size="sm" onClick={() => handleUpdate(r)} disabled={busy}>Save</Button>
+                  <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>Cancel</Button>
+                </>
+              ) : (
+                <>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-800 truncate">{r.display_name}</p>
+                    <p className="text-xs text-slate-400 truncate">{r.name}{r.description ? ` · ${r.description}` : ''}</p>
+                  </div>
+                  {LOCKED_ROLES.has(r.name)
+                    ? <Badge className="bg-slate-100 text-slate-500 border-slate-200 shrink-0">Locked</Badge>
+                    : (
+                      <>
+                        <button onClick={() => startEdit(r)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 shrink-0" title="Edit role">
+                          <Pencil size={14} />
+                        </button>
+                        <button onClick={() => handleDelete(r)} className="p-1.5 rounded-lg text-rose-400 hover:bg-rose-50 hover:text-rose-600 shrink-0" title="Delete role">
+                          <Trash2 size={14} />
+                        </button>
+                      </>
+                    )}
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+        <div className="rounded-xl border border-slate-200 p-4 space-y-3">
+          <p className="text-sm font-semibold text-slate-800">Add role</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Input label="Role key" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. store_keeper" />
+            <Input label="Display name" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="e.g. Store Keeper" />
+          </div>
+          <Input label="Description (optional)" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What this role does" />
+          <div className="flex justify-end">
+            <Button onClick={handleCreate} disabled={busy}>{busy ? 'Saving...' : 'Add Role'}</Button>
+          </div>
+        </div>
+        {error && <p className="text-sm text-rose-600">{error}</p>}
+        <div className="flex justify-end">
+          <Button variant="outline" onClick={onClose}>Done</Button>
         </div>
       </div>
     </Modal>

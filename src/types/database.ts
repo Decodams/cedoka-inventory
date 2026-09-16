@@ -500,8 +500,17 @@ export interface SaleItem {
   quantity: number;
   unit_price: number;
   discount_value: number;
+  unit: string | null;
   created_at: string;
   product?: Product;
+}
+
+export interface ProductUnit {
+  id: string;
+  product_id: string;
+  unit_name: string;
+  is_default: boolean;
+  created_at: string;
 }
 
 export interface OperationalExpense {

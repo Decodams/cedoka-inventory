@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import { DollarSign, Plus, Minus, Receipt, Search, Trash2 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { supabase, useSupabaseQuery } from '@/hooks/useSupabaseQuery';
@@ -42,7 +42,7 @@ export function SalesPage() {
     <div className="flex items-center justify-between"><div><h2 className="text-lg font-semibold text-slate-900">Sales</h2><p className="text-sm text-slate-500">Complete one transaction with one or more products.</p></div><Button onClick={() => setShowModal(true)}><Plus size={18} /> Record Sale</Button></div>
     <div className="grid grid-cols-2 gap-4"><Metric label="Completed sales" value={formatCurrency(completed)} /><Metric label="Transactions" value={String(filtered.length)} /></div>
     <div className="flex flex-col gap-3 sm:flex-row"><label className="relative flex-1"><Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input className="w-full rounded-lg border border-slate-300 py-2.5 pl-10 pr-3 text-sm" placeholder="Search customer or product..." value={search} onChange={(event) => setSearch(event.target.value)} /></label><Select className="sm:w-40" value={status} onChange={(event) => setStatus(event.target.value)}><option value="all">All statuses</option>{Object.entries(SALE_STATUS_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</Select></div>
-    {filtered.length ? <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white"><div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b bg-slate-50 text-left text-xs text-slate-500"><th className="px-4 py-3">Date</th><th className="px-4 py-3">Sale</th><th className="px-3 py-3 text-right">Total</th><th className="px-3 py-3">Status</th><th /></tr></thead><tbody className="divide-y">{filtered.map((sale) => <tr key={sale.id}><td className="px-4 py-3 text-slate-500">{formatDate(sale.sale_date)}</td><td className="px-4 py-3"><p className="font-medium">{sale.items?.length ? `${sale.items.length} item${sale.items.length === 1 ? '' : 's'}` : sale.product?.name || 'Sale'}</p><p className="text-xs text-slate-400">{sale.customer_name || 'Walk-in'} · {sale.branch?.name || 'Branch'}</p></td><td className="px-3 py-3 text-right font-semibold">{formatCurrency(Number(sale.unit_price) * sale.quantity - Number(sale.discount_value))}</td><td className="px-3 py-3"><Badge className={SALE_STATUS_STYLES[sale.status]}>{SALE_STATUS_LABELS[sale.status]}</Badge></td><td className="px-3 py-3"><button className="text-slate-400 hover:text-slate-900" title="Download receipt" onClick={() => downloadReceipt(sale.id)}><Receipt size={16} /></button></td></tr>)}</tbody></table></div></div> : <EmptyState icon={<DollarSign size={32} />} title="No sales recorded" description="Sales will appear here once completed." action={<Button onClick={() => setShowModal(true)}><Plus size={18} />Record Sale</Button>} />}
+    {filtered.length ? <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white"><div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b bg-slate-50 text-left text-xs text-slate-500"><th className="px-4 py-3">Date</th><th className="px-4 py-3">Sale</th><th className="px-3 py-3 text-right">Total</th><th className="px-3 py-3">Status</th><th /></tr></thead><tbody className="divide-y">{filtered.map((sale) => <tr key={sale.id}><td className="px-4 py-3 text-slate-500">{formatDate(sale.sale_date)}</td><td className="px-4 py-3"><p className="font-medium">{sale.items?.length ? `${sale.items.length} item${sale.items.length === 1 ? '' : 's'}` : sale.product?.name || 'Sale'}</p><p className="text-xs text-slate-400">{sale.customer_name || 'Walk-in'} Â· {sale.branch?.name || 'Branch'}</p></td><td className="px-3 py-3 text-right font-semibold">{formatCurrency(Number(sale.unit_price) * sale.quantity - Number(sale.discount_value))}</td><td className="px-3 py-3"><Badge className={SALE_STATUS_STYLES[sale.status]}>{SALE_STATUS_LABELS[sale.status]}</Badge></td><td className="px-3 py-3"><button className="text-slate-400 hover:text-slate-900" title="Download receipt" onClick={() => downloadReceipt(sale.id)}><Receipt size={16} /></button></td></tr>)}</tbody></table></div></div> : <EmptyState icon={<DollarSign size={32} />} title="No sales recorded" description="Sales will appear here once completed." action={<Button onClick={() => setShowModal(true)}><Plus size={18} />Record Sale</Button>} />}
     {showModal && <SaleModal branches={branches ?? []} currentUser={user} onClose={() => setShowModal(false)} onSaved={() => { setShowModal(false); refetch(); }} />}
   </div>;
 }
@@ -61,6 +61,8 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
   const [quantity, setQuantity] = useState('1');
   const [unitPrice, setUnitPrice] = useState('0');
   const [discount, setDiscount] = useState('0');
+  const [lineUnit, setLineUnit] = useState('');
+  const [productUnits, setProductUnits] = useState<Record<string, string[]>>({});
   const [items, setItems] = useState<CartItem[]>([]);
   const [customerName, setCustomerName] = useState('');
   const [amountPaid, setAmountPaid] = useState('');
@@ -106,6 +108,17 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
         }
         setStockByProduct(map);
       });
+    supabase
+      .from('product_units')
+      .select('product_id,unit_name')
+      .then(({ data }) => {
+        const map: Record<string, string[]> = {};
+        for (const row of (data ?? []) as Array<{ product_id: string; unit_name: string }>) {
+          if (!map[row.product_id]) map[row.product_id] = [];
+          if (row.unit_name && !map[row.product_id].includes(row.unit_name)) map[row.product_id].push(row.unit_name);
+        }
+        setProductUnits(map);
+      });
   }, [branchKey, branchBusinessId]);
 
   const visibleProducts = useMemo(() => {
@@ -118,10 +131,19 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
 
   const selectedProduct = products.find((candidate) => candidate.id === productId) ?? null;
 
+  const unitsForProduct = (p: Product): string[] => {
+    const extras = productUnits[p.id] ?? [];
+    const base = [...new Set([p.unit || 'unit', ...extras])];
+    return base.length > 0 ? base : ['unit'];
+  };
+
   const selectProduct = (id: string) => {
     setProductId(id);
     const product = products.find((candidate) => candidate.id === id);
-    if (product) setUnitPrice(String(product.selling_price));
+    if (product) {
+      setUnitPrice(String(product.selling_price));
+      setLineUnit(product.unit || 'unit');
+    }
     setError(null);
   };
 
@@ -147,14 +169,15 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
       setError(`Only ${formatUnitQuantity(available, product.unit)} of ${product.name} is in stock at this branch.`);
       return;
     }
+    const saleUnit = lineUnit || product.unit || 'unit';
     setItems((current) => {
-      const existing = current.findIndex((it) => it.product_id === product.id && it.unit_price === price && it.discount_value === disc);
+      const existing = current.findIndex((it) => it.product_id === product.id && it.unit_price === price && it.discount_value === disc && (it.unit ?? product.unit) === saleUnit);
       if (existing >= 0) {
         const next = [...current];
         next[existing] = { ...next[existing], quantity: Math.round((next[existing].quantity + qty) * 100) / 100 };
         return next;
       }
-      return [...current, { product, product_id: product.id, quantity: qty, unit_price: price, discount_value: disc }];
+      return [...current, { product, product_id: product.id, quantity: qty, unit_price: price, discount_value: disc, unit: saleUnit }];
     });
     setProductId('');
     setQuery('');
@@ -184,7 +207,7 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
       p_payment_method: paymentMethod,
       p_amount_paid: paid,
       p_notes: notes.trim() || null,
-      p_items: items.map((item) => ({ product_id: item.product_id, quantity: item.quantity, unit_price: item.unit_price, discount_value: item.discount_value })),
+      p_items: items.map((item) => ({ product_id: item.product_id, quantity: item.quantity, unit_price: item.unit_price, discount_value: item.discount_value, unit: item.unit ?? item.product.unit ?? null })),
     });
     setSaving(false);
     if (rpcError) { setError(rpcError.message); return; }
@@ -229,7 +252,7 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
                 >
                   <span className="min-w-0">
                     <span className="block truncate font-medium text-slate-800">{p.name}</span>
-                    <span className="block text-xs text-slate-400">{formatUnitQuantity(1, p.unit)} · {formatCurrency(Number(p.selling_price))}</span>
+                    <span className="block text-xs text-slate-400">{formatUnitQuantity(1, p.unit)} Â· {formatCurrency(Number(p.selling_price))}</span>
                   </span>
                   {stockByProduct[p.id] !== undefined && (
                     <span className={`text-xs font-medium shrink-0 ${(stockByProduct[p.id] ?? 0) > 0 ? 'text-slate-400' : 'text-rose-500'}`}>
@@ -245,8 +268,11 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
             <div className="rounded-lg bg-slate-50 p-3 space-y-3">
               <div className="flex items-center justify-between text-sm">
                 <span className="font-medium text-slate-800">{selectedProduct.name}</span>
-                <span className="text-slate-500">{formatCurrency(Number(unitPrice) || 0)} per {selectedProduct.unit || 'unit'}</span>
+                <span className="text-slate-500">{formatCurrency(Number(unitPrice) || 0)} per {lineUnit || selectedProduct.unit || 'unit'}</span>
               </div>
+              <Select label="Unit" value={lineUnit || selectedProduct.unit || 'unit'} onChange={(event) => setLineUnit(event.target.value)}>
+                {unitsForProduct(selectedProduct).map((u) => <option key={u} value={u}>{u}</option>)}
+              </Select>
               <div className="grid gap-3 sm:grid-cols-3">
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">Qty{selectedProduct.unit ? ` (${selectedProduct.unit})` : ''}</label>
@@ -274,7 +300,7 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
               <div className="flex items-center justify-between">
                 <span className="text-xs text-slate-500">
                   Line total: <strong className="text-slate-800">{formatCurrency((Number(quantity) || 0) * (Number(unitPrice) || 0) - (Number(discount) || 0))}</strong>
-                  {' '}· {formatUnitQuantity(Number(quantity) || 0, selectedProduct.unit)}
+                  {' '}Â· {formatUnitQuantity(Number(quantity) || 0, selectedProduct.unit)}
                 </span>
                 <Button size="sm" onClick={addItem}><Plus size={14} /> Add item</Button>
               </div>
@@ -288,7 +314,7 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
               <div className="flex items-center justify-between gap-3 p-3 text-sm" key={`${item.product_id}-${index}`}>
                 <span className="min-w-0">
                   <span className="block truncate font-medium text-slate-800">{item.product.name}</span>
-                  <span className="block text-xs text-slate-400">{formatUnitQuantity(item.quantity, item.product.unit)} @ {formatCurrency(item.unit_price)}{item.discount_value > 0 ? ` (−${formatCurrency(item.discount_value)})` : ''}</span>
+                  <span className="block text-xs text-slate-400">{formatUnitQuantity(item.quantity, item.unit ?? item.product.unit)} @ {formatCurrency(item.unit_price)}{item.discount_value > 0 ? ` (âˆ’${formatCurrency(item.discount_value)})` : ''}</span>
                 </span>
                 <span className="font-semibold shrink-0">{formatCurrency(item.quantity * item.unit_price - item.discount_value)}</span>
                 <button className="text-rose-500 hover:text-rose-700 shrink-0" onClick={() => setItems((current) => current.filter((_, i) => i !== index))} aria-label="Remove item">
@@ -330,7 +356,7 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
         {error && <p className="text-sm text-rose-600">{error}</p>}
         <div className="flex justify-end gap-3">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={complete} disabled={saving || items.length === 0}>{saving ? 'Saving...' : `Complete Sale · ${formatCurrency(total)}`}</Button>
+          <Button onClick={complete} disabled={saving || items.length === 0}>{saving ? 'Saving...' : `Complete Sale Â· ${formatCurrency(total)}`}</Button>
         </div>
       </div>
     </Modal>
