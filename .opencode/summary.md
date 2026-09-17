@@ -90,3 +90,11 @@
 - Re-added src/lib/edge.ts unwrapper; product/user saves now show real server messages.
 - New migration 202609150008 (roles.is_active) + role activate/deactivate + inactive filtered from pickers.
 - DEPLOYED from here: db push (150007+150008), functions deploy manage-product + create-user-account.
+
+## Round 8 - product visibility (tsc 0, eslint 0, build 0)
+- Live DB proof: 4 products (incl. user-tested Itel/Itel Solar), 2 users (admin + super_admin, 0 pending). Saves land; visibility was the bug.
+- ProductsPage: admin scope = own + assigned businesses via user_business_assignments; business filter shown to admins.
+
+## Round 9 - receipts (tsc 0, eslint 0 errors, build 0)
+- ReceiptPDF: NGN glyph fix (WinAnsi has no naira sign), Unit column on lines, scope-aware not-found message, fixed mangled contact separators.
+- SalesPage: receipt failures now surface a visible error instead of silent dead button.

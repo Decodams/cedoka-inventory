@@ -26,6 +26,7 @@ export function ProductsPage() {
   const canDeleteProduct = hasRole(user, 'super_admin') || hasRole(user, 'admin');
 
   const isExecutive = hasRole(user, 'super_admin');
+  const isAdmin = isAtLeast(user, 'admin');
   const [page, setPage] = useState(1);
   const pageSize = 30;
 
@@ -55,6 +56,30 @@ export function ProductsPage() {
     { cacheKey: `ref:suppliers:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
   );
 
+  // Admins oversee their own business plus any assigned businesses — the
+  // product list must cover all of them, not just the primary business.
+  const { data: myBusinessAssignments } = useSupabaseQuery<Array<{ business_id: string }>>(
+    user?.id ? () => supabase.from('user_business_assignments').select('business_id').eq('user_id', user?.id ?? '') : null,
+    [user?.id],
+    { cacheKey: `assign:biz:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
+  );
+
+  const accessibleBusinessIds = useMemo(() => {
+    if (isExecutive || !isAdmin) return null;
+    const set = new Set<string>();
+    if (user?.business_id) set.add(user.business_id);
+    for (const a of myBusinessAssignments ?? []) if (a.business_id) set.add(a.business_id);
+    return [...set];
+  }, [isExecutive, isAdmin, user?.business_id, myBusinessAssignments]);
+
+  const visibleBusinesses = useMemo(() => {
+    if (isExecutive) return businesses ?? [];
+    if (isAdmin && accessibleBusinessIds && accessibleBusinessIds.length > 0) {
+      return (businesses ?? []).filter((b) => accessibleBusinessIds.includes(b.id));
+    }
+    return (businesses ?? []).filter((b) => b.id === user?.business_id);
+  }, [isExecutive, isAdmin, businesses, accessibleBusinessIds, user?.business_id]);
+
   const productsQuery = useMemo(() => {
     const from = (page - 1) * pageSize;
     const to = page * pageSize - 1;
@@ -63,17 +88,23 @@ export function ProductsPage() {
       .select(`*, category:categories(id,name), supplier:suppliers(id,name)`, { count: 'exact' })
       .order('name')
       .range(from, to);
-    if (!isExecutive && user?.business_id) {
-      q = q.eq('business_id', user.business_id);
+    if (!isExecutive) {
+      if (isAdmin) {
+        if (accessibleBusinessIds && accessibleBusinessIds.length > 0) {
+          q = q.in('business_id', accessibleBusinessIds);
+        }
+      } else if (user?.business_id) {
+        q = q.eq('business_id', user.business_id);
+      }
     }
     if (filterBusiness !== 'all') q = q.eq('business_id', filterBusiness);
     return q;
-  }, [isExecutive, user, filterBusiness, page, pageSize]);
+  }, [isExecutive, isAdmin, user, accessibleBusinessIds, filterBusiness, page, pageSize]);
 
   const { data: products, loading, error, refetch } = useSupabaseQuery<Product[]>(
     () => productsQuery,
     [productsQuery],
-    { cacheKey: `products:${user?.id ?? 'anon'}:${user?.business_id ?? '-'}:${filterBusiness}` },
+    { cacheKey: `products:${user?.id ?? 'anon'}:${user?.business_id ?? '-'}:${filterBusiness}:${(accessibleBusinessIds ?? []).join(',')}` },
   );
 
   const filtered = useMemo(() => {
@@ -124,10 +155,10 @@ export function ProductsPage() {
             className="w-full pl-10 pr-3.5 py-2.5 text-sm border border-slate-300 rounded-lg outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10"
           />
         </div>
-        {isExecutive && (
+        {(isExecutive || isAdmin) && (
           <Select value={filterBusiness} onChange={(e) => setFilterBusiness(e.target.value)} className="sm:w-56">
             <option value="all">All Businesses</option>
-            {businesses?.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            {visibleBusinesses.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </Select>
         )}
       </div>
