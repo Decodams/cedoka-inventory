@@ -98,3 +98,7 @@
 ## Round 9 - receipts (tsc 0, eslint 0 errors, build 0)
 - ReceiptPDF: NGN glyph fix (WinAnsi has no naira sign), Unit column on lines, scope-aware not-found message, fixed mangled contact separators.
 - SalesPage: receipt failures now surface a visible error instead of silent dead button.
+
+## Round 10 - invisible-data root cause FIXED + deployed
+- Root cause: migration 012 cleanup dropped 011 scoped SELECT policies without recreating most; tables had writes but no reads (silent empty lists).
+- New migration 202609150009 restores 12 scoped SELECTs (products, categories, suppliers, issues, purchase_requests, GRNs, transfers, balances, txns, periods, period lines, variances). Pushed + verified live via pg_policies.
