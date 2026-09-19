@@ -502,6 +502,7 @@ export interface SaleItem {
   unit_price: number;
   discount_value: number;
   unit: string | null;
+  serial_number: string | null;
   created_at: string;
   product?: Product;
 }

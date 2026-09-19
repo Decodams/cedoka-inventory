@@ -24,7 +24,7 @@ export function SaleDetailModal({ saleId, onClose }: { saleId: string; onClose: 
   const { data: sale, loading, error, refetch } = useSupabaseQuery<SaleDetail>(
     () => supabase
       .from('daily_sales')
-      .select('*, product:products(id,name), items:sale_items(id,quantity,unit,unit_price,discount_value,product:products(id,name)), branch:branches(id,name), business:businesses(id,name), salesperson:user_profiles!daily_sales_salesperson_id_fkey(full_name,email,role:roles(display_name))')
+      .select('*, product:products(id,name), items:sale_items(id,quantity,unit,serial_number,unit_price,discount_value,product:products(id,name)), branch:branches(id,name), business:businesses(id,name), salesperson:user_profiles!daily_sales_salesperson_id_fkey(full_name,email,role:roles(display_name))')
       .eq('id', saleId)
       .maybeSingle(),
     [saleId],
@@ -122,7 +122,10 @@ export function SaleDetailModal({ saleId, onClose }: { saleId: string; onClose: 
                   )}
                   {items.map((item) => (
                     <tr key={item.id}>
-                      <td className="px-4 py-2.5 font-medium text-slate-800">{item.product?.name || 'Item'}</td>
+                      <td className="px-4 py-2.5 font-medium text-slate-800">
+                        {item.product?.name || 'Item'}
+                        {item.serial_number && <span className="block text-[11px] font-normal text-slate-400">SN: {item.serial_number}</span>}
+                      </td>
                       <td className="px-3 py-2.5 text-right">{item.quantity}</td>
                       <td className="px-3 py-2.5 text-slate-500">{item.unit || '-'}</td>
                       <td className="px-3 py-2.5 text-right">{formatCurrency(Number(item.unit_price))}</td>

@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { formatCurrency, formatDate } from '@/lib/dateUtils';
 import logoUrl from '@/logo.jpeg';
 
-const COMPANY = 'CEDOKA MALL';
+const COMPANY = 'CEDOKA GLOBAL LIMITED';
 const ADDRESS_1 = '35, Ailegun Road, Ejigbo, Lagos';
 const ADDRESS_2 = 'Top Mak Plaza, Awka';
 const CONTACT_PHONES = '07045851131 | 09128817136 | 09074190070';
@@ -13,6 +13,7 @@ const CONTACT_ONLINE = 'cedokamall@gmail.com | cedokamall.com';
 interface ReceiptItem {
   quantity: number;
   unit?: string | null;
+  serial_number?: string | null;
   unit_price: number;
   discount_value: number;
   product?: { name: string } | null;
@@ -57,7 +58,7 @@ async function loadLogoDataUrl(): Promise<string | null> {
 }
 
 async function buildReceiptPdf(saleId: string): Promise<{ pdf: jsPDF; receiptNo: string }> {
-  const { data, error } = await supabase.from('daily_sales').select('*, product:products(id,name), items:sale_items(quantity,unit,unit_price,discount_value,product:products(name)), branch:branches(name), business:businesses(name), salesperson:user_profiles!daily_sales_salesperson_id_fkey(full_name)').eq('id', saleId).single();
+  const { data, error } = await supabase.from('daily_sales').select('*, product:products(id,name), items:sale_items(quantity,unit,serial_number,unit_price,discount_value,product:products(name)), branch:branches(name), business:businesses(name), salesperson:user_profiles!daily_sales_salesperson_id_fkey(full_name)').eq('id', saleId).single();
   if (error || !data) throw new Error('Sale not found. It may be outside your assigned scope.');
   const sale = data as unknown as ReceiptSale;
   const legacyItem: ReceiptItem = { product: sale.product ?? null, quantity: 1, unit: null, unit_price: 0, discount_value: 0 };
@@ -84,9 +85,9 @@ async function buildReceiptPdf(saleId: string): Promise<{ pdf: jsPDF; receiptNo:
   y += 6;
   pdf.setFont('helvetica', 'normal');
   pdf.setFontSize(8);
-  pdf.text(`1: ${ADDRESS_1}`, width / 2, y, { align: 'center' });
+  pdf.text(ADDRESS_1, width / 2, y, { align: 'center' });
   y += 4;
-  pdf.text(`2: ${ADDRESS_2}`, width / 2, y, { align: 'center' });
+  pdf.text(ADDRESS_2, width / 2, y, { align: 'center' });
   y += 4;
   pdf.text(CONTACT_PHONES, width / 2, y, { align: 'center' });
   y += 4;
@@ -111,16 +112,17 @@ async function buildReceiptPdf(saleId: string): Promise<{ pdf: jsPDF; receiptNo:
   y += 5;
   pdf.text(`Customer: ${sale.customer_name || 'Walk-in'}`, margin, y);
   y += 5;
-  pdf.text(`Attendant: ${sale.salesperson?.full_name || 'Staff'}`, margin, y);
+  pdf.text(`Attendant: ${(sale.salesperson?.full_name || 'Staff').split(' ')[0]}`, margin, y);
   y += 4;
 
   autoTable(pdf, {
     startY: y,
-    head: [['Item', 'Qty', 'Unit', 'Unit price', 'Line total']],
+    head: [['Item', 'Qty', 'Unit', 'Serial', 'Unit price', 'Line total']],
     body: items.map((item) => [
       item.product?.name || 'Sale item',
       String(item.quantity),
       item.unit || '-',
+      item.serial_number || '-',
       pdfMoney(Number(item.unit_price)),
       pdfMoney(Number(item.quantity) * Number(item.unit_price) - Number(item.discount_value || 0)),
     ]),

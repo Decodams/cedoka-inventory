@@ -141,3 +141,9 @@
 
 ## Round 18 - receipt header polish (tsc 0, build 0)
 - Receipt name CEDOKA GLOBAL MALL -> CEDOKA MALL (PDF + HTML preview); added 09128817136, 09074190070 (two-line layout on PDF); logo/name gap widened.
+
+## Round 19 - serials, receipt identity, responsive fixes (verified + deployed)
+- New migration 202609150011: sale_items.serial_number + RPC persists it. Pushed live.
+- Sale lines carry optional serial (input, merge-aware, cart/preview/PDF/detail display).
+- Receipt identity: CEDOKA GLOBAL LIMITED, unnumbered addresses, attendant = first name (PDF + preview).
+- Responsive: variance button enlarged + labeled; stat grids collapse to 1 col on phones.

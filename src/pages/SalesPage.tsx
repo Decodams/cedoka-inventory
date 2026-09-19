@@ -83,6 +83,7 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
   const [quantity, setQuantity] = useState('1');
   const [unitPrice, setUnitPrice] = useState('0');
   const [discount, setDiscount] = useState('0');
+  const [serial, setSerial] = useState('');
   const [lineUnit, setLineUnit] = useState('');
   const [productUnits, setProductUnits] = useState<Record<string, string[]>>({});
   const [items, setItems] = useState<CartItem[]>([]);
@@ -174,6 +175,7 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
     if (product) {
       setUnitPrice(String(product.selling_price));
       setLineUnit(product.unit || 'unit');
+      setSerial('');
     }
     setError(null);
   };
@@ -185,15 +187,15 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
     });
   };
 
-  const pushToCart = (product: Product, qty: number, price: number, disc: number, saleUnit: string) => {
+  const pushToCart = (product: Product, qty: number, price: number, disc: number, saleUnit: string, serial: string | null) => {
     setItems((current) => {
-      const existing = current.findIndex((it) => it.product_id === product.id && it.unit_price === price && it.discount_value === disc && (it.unit ?? product.unit) === saleUnit);
+      const existing = current.findIndex((it) => it.product_id === product.id && it.unit_price === price && it.discount_value === disc && (it.unit ?? product.unit) === saleUnit && (it.serial_number ?? null) === (serial ?? null));
       if (existing >= 0) {
         const next = [...current];
         next[existing] = { ...next[existing], quantity: Math.round((next[existing].quantity + qty) * 100) / 100 };
         return next;
       }
-      return [...current, { product, product_id: product.id, quantity: qty, unit_price: price, discount_value: disc, unit: saleUnit }];
+      return [...current, { product, product_id: product.id, quantity: qty, unit_price: price, discount_value: disc, unit: saleUnit, serial_number: serial }];
     });
   };
 
@@ -204,7 +206,7 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
       setError(`Only ${formatUnitQuantity(stock, product.unit)} of ${product.name} is in stock at this branch.`);
       return;
     }
-    pushToCart(product, 1, Number(product.selling_price) || 0, 0, product.unit || 'unit');
+    pushToCart(product, 1, Number(product.selling_price) || 0, 0, product.unit || 'unit', null);
     setError(null);
   };
 
@@ -224,12 +226,14 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
       return;
     }
     const saleUnit = lineUnit || product.unit || 'unit';
-    pushToCart(product, qty, price, disc, saleUnit);
+    const saleSerial = serial.trim() || null;
+    pushToCart(product, qty, price, disc, saleUnit, saleSerial);
     setProductId('');
     setQuery('');
     setQuantity('1');
     setUnitPrice('0');
     setDiscount('0');
+    setSerial('');
     setError(null);
   };
 
@@ -253,7 +257,7 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
       p_payment_method: paymentMethod,
       p_amount_paid: paid,
       p_notes: notes.trim() || null,
-      p_items: items.map((item) => ({ product_id: item.product_id, quantity: item.quantity, unit_price: item.unit_price, discount_value: item.discount_value, unit: item.unit ?? item.product.unit ?? null })),
+      p_items: items.map((item) => ({ product_id: item.product_id, quantity: item.quantity, unit_price: item.unit_price, discount_value: item.discount_value, unit: item.unit ?? item.product.unit ?? null, serial_number: item.serial_number ?? null })),
     });
     setSaving(false);
     if (rpcError) { setError(rpcError.message); return; }
@@ -271,6 +275,7 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
     setQuantity('1');
     setUnitPrice('0');
     setDiscount('0');
+    setSerial('');
     setCustomerName('');
     setAmountPaid('');
     setPaidTouched(false);
@@ -390,6 +395,7 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
               <Select label="Unit" value={lineUnit || selectedProduct.unit || 'unit'} onChange={(event) => setLineUnit(event.target.value)}>
                 {unitsForProduct(selectedProduct).map((u) => <option key={u} value={u}>{u}</option>)}
               </Select>
+              <Input label="Serial Number (optional)" value={serial} onChange={(event) => setSerial(event.target.value)} placeholder="e.g. SN123456" />
               <div className="grid gap-3 sm:grid-cols-3">
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">Qty{selectedProduct.unit ? ` (${selectedProduct.unit})` : ''}</label>
@@ -431,7 +437,7 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
               <div className="flex items-center justify-between gap-3 p-3 text-sm" key={`${item.product_id}-${index}`}>
                 <span className="min-w-0">
                   <span className="block truncate font-medium text-slate-800">{item.product.name}</span>
-                  <span className="block text-xs text-slate-400">{formatUnitQuantity(item.quantity, item.unit ?? item.product.unit)} @ {formatCurrency(item.unit_price)}{item.discount_value > 0 ? ` (-${formatCurrency(item.discount_value)})` : ''}</span>
+                  <span className="block text-xs text-slate-400">{formatUnitQuantity(item.quantity, item.unit ?? item.product.unit)} @ {formatCurrency(item.unit_price)}{item.discount_value > 0 ? ` (-${formatCurrency(item.discount_value)})` : ''}{item.serial_number ? ` · SN: ${item.serial_number}` : ''}</span>
                 </span>
                 <span className="font-semibold shrink-0">{formatCurrency(item.quantity * item.unit_price - item.discount_value)}</span>
                 <button className="text-rose-500 hover:text-rose-700 shrink-0" onClick={() => setItems((current) => current.filter((_, i) => i !== index))} aria-label="Remove item">
@@ -464,9 +470,9 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
             <p className="px-4 pt-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Receipt preview</p>
             <div className="p-4 max-w-sm mx-auto text-center">
               <img src={logoUrl} alt="Cedoka" className="h-12 w-12 object-contain mx-auto rounded-lg" />
-              <p className="mt-3 text-sm font-bold tracking-wide text-slate-900">CEDOKA MALL</p>
-              <p className="text-[11px] text-slate-500">1: 35, Ailegun Road, Ejigbo, Lagos</p>
-              <p className="text-[11px] text-slate-500">2: Top Mak Plaza, Awka</p>
+              <p className="mt-3 text-sm font-bold tracking-wide text-slate-900">CEDOKA GLOBAL LIMITED</p>
+              <p className="text-[11px] text-slate-500">35, Ailegun Road, Ejigbo, Lagos</p>
+              <p className="text-[11px] text-slate-500">Top Mak Plaza, Awka</p>
               <p className="text-[11px] text-slate-500">07045851131 | 09128817136 | 09074190070 | cedokamall@gmail.com | cedokamall.com</p>
               <div className="my-2 border-t border-dashed border-slate-300" />
               <p className="text-xs font-bold tracking-widest text-slate-900">SALES RECEIPT</p>
@@ -474,7 +480,7 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
                 <p>Date: {formatDate(new Date().toISOString().slice(0, 10))}</p>
                 <p>Branch: {branch?.name ?? '-'}</p>
                 <p>Customer: {customerName.trim() || 'Walk-in'}</p>
-                <p>Attendant: {currentUser?.full_name ?? 'Staff'}</p>
+                <p>Attendant: {(currentUser?.full_name ?? 'Staff').split(' ')[0]}</p>
               </div>
               <table className="mt-2 w-full text-[11px]">
                 <thead>
@@ -488,7 +494,10 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
                 <tbody>
                   {items.map((item, index) => (
                     <tr key={`${item.product_id}-${index}`} className="border-b border-slate-100 text-slate-700">
-                      <td className="py-1 pr-2 text-left">{item.product.name}</td>
+                      <td className="py-1 pr-2 text-left">
+                        {item.product.name}
+                        {item.serial_number && <span className="block text-[10px] text-slate-400">SN: {item.serial_number}</span>}
+                      </td>
                       <td className="py-1 pr-2 text-right">{item.quantity}</td>
                       <td className="py-1 pr-2">{item.unit ?? item.product.unit ?? '-'}</td>
                       <td className="py-1 text-right font-medium">{formatCurrency(item.quantity * item.unit_price - item.discount_value)}</td>

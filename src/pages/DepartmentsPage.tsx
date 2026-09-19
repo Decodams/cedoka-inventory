@@ -52,7 +52,7 @@ export function DepartmentsPage() {
         {canManage && <Button onClick={() => { setEditing(null); setShowModal(true); }} className="w-full sm:w-auto"><Plus size={18} /> New Department</Button>}
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="bg-white rounded-2xl border border-slate-200 p-4"><p className="text-2xl font-bold text-slate-900">{filtered.length}</p><p className="text-xs text-slate-400 mt-1">Total</p></div>
         <div className="bg-white rounded-2xl border border-slate-200 p-4"><p className="text-2xl font-bold text-emerald-600">{active}</p><p className="text-xs text-slate-400 mt-1">Active</p></div>
         <div className="bg-white rounded-2xl border border-slate-200 p-4"><p className="text-2xl font-bold text-slate-500">{filtered.length - active}</p><p className="text-xs text-slate-400 mt-1">Inactive</p></div>

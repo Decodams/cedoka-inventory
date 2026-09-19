@@ -352,7 +352,7 @@ function PeriodDetailView({ period, onBack, onRefresh }: { period: InventoryPeri
                         </span>}
                     </td>
                     <td className="px-2">
-                      {hasVariance && <button onClick={()=>setShowVarianceModal(l)} className="p-1 rounded hover:bg-amber-100 text-amber-600"><AlertTriangle size={14}/></button>}
+                      {hasVariance && <button onClick={()=>setShowVarianceModal(l)} aria-label="Review variance" className="p-2 rounded-lg hover:bg-amber-100 text-amber-600"><AlertTriangle size={14}/></button>}
                     </td>
                   </tr>
                 );
@@ -428,7 +428,7 @@ function VarianceDetailModal({ line, variance, onClose, onSaved }: { line: Inven
   return (
     <Modal open onClose={onClose} title={`Variance — ${prod?.name ?? 'Product'}`} size="md">
       <div className="space-y-4">
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 grid grid-cols-3 gap-4 text-center">
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
           <div><p className="text-xs text-slate-500">Expected</p><p className="text-lg font-bold text-slate-900">{formatNumber(expected)}</p></div>
           <div><p className="text-xs text-slate-500">Physical</p><p className="text-lg font-bold text-slate-900">{physical===null?'—':formatNumber(physical)}</p></div>
           <div><p className="text-xs text-slate-500">Variance</p><p className={`text-lg font-bold ${diff<0?'text-rose-600':'text-emerald-600'}`}>{diff>0?'+':''}{formatNumber(diff)}</p></div>
