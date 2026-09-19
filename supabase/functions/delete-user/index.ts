@@ -73,6 +73,15 @@ Deno.serve(async (request) => {
     if (target.branch_id && actorBranch && target.branch_id !== actorBranch) return reply({ error: 'Managers can only delete users within their own branch' }, 403);
   }
 
+  // Clear references that would otherwise block the delete (manager links and
+  // the one RESTRICT user reference), then delete auth + profile.
+  const { error: subordinateError } = await admin.from('user_profiles').update({ manager_id: null }).eq('manager_id', targetUserId);
+  if (subordinateError) return reply({ error: subordinateError.message }, 500);
+  const { error: exceptionError } = await admin.from('inventory_exception_records').update({ reported_by: null }).eq('reported_by', targetUserId);
+  if (exceptionError && !exceptionError.message.includes('does not exist') && !exceptionError.message.includes('Could not find')) {
+    return reply({ error: exceptionError.message }, 500);
+  }
+
   // Delete auth user first, then profile (cascade cleanup)
   const { error: deleteAuthError } = await admin.auth.admin.deleteUser(targetUserId);
   if (deleteAuthError) return reply({ error: deleteAuthError.message }, 500);

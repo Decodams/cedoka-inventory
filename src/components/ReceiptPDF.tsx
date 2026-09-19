@@ -12,8 +12,7 @@ const CONTACT = '07045851131 | cedokamall@gmail.com | cedokamall.com';
 // would render as blanks - use the NGN code instead for PDF output.
 const pdfMoney = (value: number): string => formatCurrency(value).replace(/₦/g, 'NGN ');
 
-export function useReceiptPDF() {
-  const downloadReceipt = async (saleId: string) => {
+async function buildReceiptPdf(saleId: string): Promise<{ pdf: PdfWithAutoTable; receiptNo: string }> {
     const { data: sale, error } = await supabase.from('daily_sales').select('*, product:products(id,name), items:sale_items(quantity,unit,unit_price,discount_value,product:products(name)), branch:branches(name), business:businesses(name)').eq('id', saleId).single();
     if (error || !sale) throw new Error('Sale not found. It may be outside your assigned scope.');
     const legacyItem = { product: sale.product, quantity: sale.quantity, unit_price: sale.unit_price, discount_value: sale.discount_value, unit: null };
@@ -40,7 +39,19 @@ export function useReceiptPDF() {
     if (sale.notes) { pdf.setFontSize(8); pdf.text(`Notes: ${sale.notes}`, margin, y); y += 8; }
     pdf.setDrawColor(180); pdf.line(margin, y, width - margin, y); y += 5;
     pdf.setFontSize(8); pdf.text('Thank you for your business.', width / 2, y, { align: 'center' });
-    pdf.save(`cedoka-receipt-${sale.id.substring(0, 8)}.pdf`);
+    return { pdf, receiptNo: sale.id.substring(0, 8).toUpperCase() };
+}
+
+export function useReceiptPDF() {
+  const downloadReceipt = async (saleId: string) => {
+    const { pdf, receiptNo } = await buildReceiptPdf(saleId);
+    pdf.save(`cedoka-receipt-${receiptNo}.pdf`);
   };
-  return { downloadReceipt };
+  const printReceipt = async (saleId: string) => {
+    const { pdf } = await buildReceiptPdf(saleId);
+    pdf.autoPrint();
+    const blobUrl = pdf.output('bloburl') as unknown as string;
+    window.open(blobUrl, '_blank', 'noopener');
+  };
+  return { downloadReceipt, printReceipt };
 }

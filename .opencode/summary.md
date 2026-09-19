@@ -102,3 +102,23 @@
 ## Round 10 - invisible-data root cause FIXED + deployed
 - Root cause: migration 012 cleanup dropped 011 scoped SELECT policies without recreating most; tables had writes but no reads (silent empty lists).
 - New migration 202609150009 restores 12 scoped SELECTs (products, categories, suppliers, issues, purchase_requests, GRNs, transfers, balances, txns, periods, period lines, variances). Pushed + verified live via pg_policies.
+
+## Round 11 - login crash fixed (tsc 0, eslint 0, build 0)
+- CustomersPage failed to compile (duplicate filtered declaration, missing /> on CustomerModal, trailing garbage): vite login crash for everyone. Fixed; file now 350+ lines, clean.
+- CustomersPage is a full table (Name/Email/Phone/Branch/Business/Status + edit/activate/delete), matching UserManagement.
+
+## Round 12 - sale-to-receipt loop (tsc 0, eslint 0 errors, build 0)
+- ReceiptPDF refactored to shared builder + downloadReceipt + printReceipt (autoPrint to new tab).
+- SaleModal shows post-sale success panel (total/items/customer + Download PDF + Print + New Sale + Done); RPC sale id captured.
+- Sales table rows have Download + Print buttons; New Issue/New Report creation open to page roles.
+
+## Round 13 - customers/products/sales/branch-scope (tsc 0, eslint 0, build 0)
+- Customers simplified: name/phone/location only, business auto-filled, no branch linkage in UI.
+- Product delete now tries manage-product edge first (direct delete has no RLS policy and always failed).
+- Sales picker: out-of-stock rows blocked with message + hide toggle; one-tap quick-add; duplicate product names blocked at creation.
+- Branch dropdowns scoped: non-admin/manager see only own branch (sales) / own-business branches (transfers).
+
+## Round 14 - super-admin cascade deletes (tsc 0, eslint 0, build 0; deployed)
+- New migration 202609150010: inactive Default business+branch bucket. Pushed + verified live.
+- New edge fn delete-organization (super_admin only): business/branch/unit/product/role/user with history preserved under Default, staff accounts kept. Deployed.
+- UI: super_admin deletes route to engine (business/branch/unit/role/product); admin keeps deactivate fallback. delete-user extended (manager links, exception reporter). Redeployed.

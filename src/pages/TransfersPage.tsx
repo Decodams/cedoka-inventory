@@ -209,6 +209,10 @@ function TransferModal({
   onSaved: () => void;
 }) {
   const isManager = currentUser?.role?.name === 'manager';
+  const canSeeAllBranches = currentUser?.role?.name === 'admin' || currentUser?.role?.name === 'super_admin';
+  const visibleBranches = canSeeAllBranches
+    ? branches
+    : branches.filter((b) => b.business_id === currentUser?.business_id || b.id === currentUser?.branch_id);
   const [fromBranchId, setFromBranchId] = useState(currentUser?.branch_id ?? '');
   const [toBranchId, setToBranchId] = useState('');
   const [reason, setReason] = useState('');
@@ -296,11 +300,11 @@ function TransferModal({
         <div className="grid grid-cols-2 gap-4">
           <Select label="From Branch" value={fromBranchId} onChange={(e) => handleFromChange(e.target.value)} disabled={isManager}>
             <option value="">Select source...</option>
-            {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            {visibleBranches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </Select>
           <Select label="To Branch" value={toBranchId} onChange={(e) => setToBranchId(e.target.value)}>
             <option value="">Select destination...</option>
-            {branches.filter((b) => b.id !== fromBranchId).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            {visibleBranches.filter((b) => b.id !== fromBranchId).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </Select>
         </div>
         <Input label="Reason" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why is this transfer needed?" />

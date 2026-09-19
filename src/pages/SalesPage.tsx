@@ -1,5 +1,5 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
-import { DollarSign, Plus, Minus, Receipt, Search, Trash2 } from 'lucide-react';
+import { DollarSign, Plus, Minus, Receipt, Search, Trash2, Check, Printer } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { supabase, useSupabaseQuery } from '@/hooks/useSupabaseQuery';
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States';
@@ -22,7 +22,7 @@ export function SalesPage() {
   const [receiptError, setReceiptError] = useState<string | null>(null);
   const isExecutive = hasRole(user, 'super_admin');
   const businessLevel = isAtLeast(user, 'admin');
-  const { downloadReceipt } = useReceiptPDF();
+  const { downloadReceipt, printReceipt } = useReceiptPDF();
   const { data: branches } = useSupabaseQuery<Branch[]>(() => supabase.from('branches').select('*').eq('is_active', true).order('name'), [], { cacheKey: `sales-branches:${user?.id}`, ttlMs: 60_000 });
   const { data: sales, loading, error, refetch } = useSupabaseQuery<DailySale[]>(() => {
     let query = supabase.from('daily_sales').select('*, product:products(id,name), items:sale_items(id,quantity,unit_price,discount_value,product:products(id,name)), branch:branches(id,name)', { count: 'exact' }).order('created_at', { ascending: false }).limit(100);
@@ -40,11 +40,25 @@ export function SalesPage() {
   if (loading) return <LoadingState />;
   if (error) return <ErrorState message="Could not load sales." onRetry={refetch} />;
   return <div className="space-y-6">
-    <div className="flex items-center justify-between"><div><h2 className="text-lg font-semibold text-slate-900">Sales</h2><p className="text-sm text-slate-500">Complete one transaction with one or more products.</p></div><Button onClick={() => setShowModal(true)}><Plus size={18} /> Record Sale</Button></div>
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div>
+        <h2 className="text-lg font-semibold text-slate-900">Sales</h2>
+        <p className="text-sm text-slate-500">Complete one transaction with one or more products.</p>
+      </div>
+      <Button onClick={() => setShowModal(true)} className="w-full sm:w-auto"><Plus size={18} /> Record Sale</Button></div>
     <div className="grid grid-cols-2 gap-4"><Metric label="Completed sales" value={formatCurrency(completed)} /><Metric label="Transactions" value={String(filtered.length)} /></div>
-    <div className="flex flex-col gap-3 sm:flex-row"><label className="relative flex-1"><Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input className="w-full rounded-lg border border-slate-300 py-2.5 pl-10 pr-3 text-sm" placeholder="Search customer or product..." value={search} onChange={(event) => setSearch(event.target.value)} /></label><Select className="sm:w-40" value={status} onChange={(event) => setStatus(event.target.value)}><option value="all">All statuses</option>{Object.entries(SALE_STATUS_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</Select></div>
+    <div className="flex flex-col gap-3 sm:flex-row">
+      <label className="relative flex-1">
+        <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+        <input className="w-full rounded-lg border border-slate-300 py-2.5 pl-10 pr-3 text-sm" placeholder="Search customer or product..." value={search} onChange={(event) => setSearch(event.target.value)} />
+      </label>
+      <Select className="sm:w-40" value={status} onChange={(event) => setStatus(event.target.value)}>
+        <option value="all">All statuses</option>
+        {Object.entries(SALE_STATUS_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+      </Select>
+    </div>
     {receiptError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{receiptError}</p>}
-    {filtered.length ? <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white"><div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b bg-slate-50 text-left text-xs text-slate-500"><th className="px-4 py-3">Date</th><th className="px-4 py-3">Sale</th><th className="px-3 py-3 text-right">Total</th><th className="px-3 py-3">Status</th><th /></tr></thead><tbody className="divide-y">{filtered.map((sale) => <tr key={sale.id}><td className="px-4 py-3 text-slate-500">{formatDate(sale.sale_date)}</td><td className="px-4 py-3"><p className="font-medium">{sale.items?.length ? `${sale.items.length} item${sale.items.length === 1 ? '' : 's'}` : sale.product?.name || 'Sale'}</p><p className="text-xs text-slate-400">{sale.customer_name || 'Walk-in'} Â· {sale.branch?.name || 'Branch'}</p></td><td className="px-3 py-3 text-right font-semibold">{formatCurrency(Number(sale.unit_price) * sale.quantity - Number(sale.discount_value))}</td><td className="px-3 py-3"><Badge className={SALE_STATUS_STYLES[sale.status]}>{SALE_STATUS_LABELS[sale.status]}</Badge></td><td className="px-3 py-3"><button className="text-slate-400 hover:text-slate-900" title="Download receipt" onClick={() => { setReceiptError(null); downloadReceipt(sale.id).catch((e: unknown) => setReceiptError(e instanceof Error ? e.message : 'Could not download the receipt.')); }}><Receipt size={16} /></button></td></tr>)}</tbody></table></div></div> : <EmptyState icon={<DollarSign size={32} />} title="No sales recorded" description="Sales will appear here once completed." action={<Button onClick={() => setShowModal(true)}><Plus size={18} />Record Sale</Button>} />}
+    {filtered.length ? <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white"><div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b bg-slate-50 text-left text-xs text-slate-500"><th className="px-4 py-3">Date</th><th className="px-4 py-3">Sale</th><th className="px-3 py-3 text-right">Total</th><th className="px-3 py-3">Status</th><th /></tr></thead><tbody className="divide-y">{filtered.map((sale) => <tr key={sale.id}><td className="px-4 py-3 text-slate-500">{formatDate(sale.sale_date)}</td><td className="px-4 py-3"><p className="font-medium">{sale.items?.length ? `${sale.items.length} item${sale.items.length === 1 ? '' : 's'}` : sale.product?.name || 'Sale'}</p><p className="text-xs text-slate-400">{sale.customer_name || 'Walk-in'} · {sale.branch?.name || 'Branch'}</p></td><td className="px-3 py-3 text-right font-semibold">{formatCurrency(Number(sale.unit_price) * sale.quantity - Number(sale.discount_value))}</td><td className="px-3 py-3"><Badge className={SALE_STATUS_STYLES[sale.status]}>{SALE_STATUS_LABELS[sale.status]}</Badge></td><td className="px-3 py-3"><span className="inline-flex items-center gap-1"><button className="text-slate-400 hover:text-slate-900" title="Download receipt" onClick={() => { setReceiptError(null); downloadReceipt(sale.id).catch((e: unknown) => setReceiptError(e instanceof Error ? e.message : 'Could not download the receipt.')); }}><Receipt size={16} /></button><button className="text-slate-400 hover:text-slate-900" title="Print receipt" onClick={() => { setReceiptError(null); printReceipt(sale.id).catch((e: unknown) => setReceiptError(e instanceof Error ? e.message : 'Could not print the receipt.')); }}><Printer size={16} /></button></span></td></tr>)}</tbody></table></div></div> : <EmptyState icon={<DollarSign size={32} />} title="No sales recorded" description="Sales will appear here once completed." action={<Button onClick={() => setShowModal(true)}><Plus size={18} />Record Sale</Button>} />}
     {showModal && <SaleModal branches={branches ?? []} currentUser={user} onClose={() => setShowModal(false)} onSaved={() => { setShowModal(false); refetch(); }} />}
   </div>;
 }
@@ -53,6 +67,7 @@ function Metric({ label, value }: { label: string; value: string }) { return <di
 type CartItem = Omit<SaleItem, 'id' | 'sale_id' | 'created_at'> & { product: Product };
 
 function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Branch[]; currentUser: UserProfile | null; onClose: () => void; onSaved: () => void }) {
+  const { downloadReceipt, printReceipt } = useReceiptPDF();
   const canChooseBranch = currentUser?.role?.name === 'admin' || currentUser?.role?.name === 'super_admin';
   const [branchId, setBranchId] = useState(currentUser?.branch_id ?? '');
   const [products, setProducts] = useState<Product[]>([]);
@@ -73,6 +88,8 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [completedSaleId, setCompletedSaleId] = useState<string | null>(null);
+  const [receiptBusy, setReceiptBusy] = useState(false);
 
   const branch = branches.find((candidate) => candidate.id === branchId) ?? null;
   const branchKey = branch?.id ?? '';
@@ -123,13 +140,20 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
       });
   }, [branchKey, branchBusinessId]);
 
+  const [hideOutOfStock, setHideOutOfStock] = useState(false);
+
+  const stockOf = (pid: string): number | undefined => stockByProduct[pid];
+
   const visibleProducts = useMemo(() => {
     const q = query.trim().toLowerCase();
     const list = q
       ? products.filter((p) => p.name.toLowerCase().includes(q) || (p.sku ?? '').toLowerCase().includes(q))
       : products;
-    return list.slice(0, 60);
-  }, [products, query]);
+    const inStockFirst = hideOutOfStock
+      ? list.filter((p) => (stockByProduct[p.id] ?? 1) > 0)
+      : list;
+    return inStockFirst.slice(0, 60);
+  }, [products, query, hideOutOfStock, stockByProduct]);
 
   const selectedProduct = products.find((candidate) => candidate.id === productId) ?? null;
 
@@ -156,6 +180,29 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
     });
   };
 
+  const pushToCart = (product: Product, qty: number, price: number, disc: number, saleUnit: string) => {
+    setItems((current) => {
+      const existing = current.findIndex((it) => it.product_id === product.id && it.unit_price === price && it.discount_value === disc && (it.unit ?? product.unit) === saleUnit);
+      if (existing >= 0) {
+        const next = [...current];
+        next[existing] = { ...next[existing], quantity: Math.round((next[existing].quantity + qty) * 100) / 100 };
+        return next;
+      }
+      return [...current, { product, product_id: product.id, quantity: qty, unit_price: price, discount_value: disc, unit: saleUnit }];
+    });
+  };
+
+  const quickAdd = (product: Product) => {
+    const stock = stockOf(product.id);
+    const alreadyInCart = items.filter((it) => it.product_id === product.id).reduce((sum, it) => sum + it.quantity, 0);
+    if (stock !== undefined && alreadyInCart + 1 > stock) {
+      setError(`Only ${formatUnitQuantity(stock, product.unit)} of ${product.name} is in stock at this branch.`);
+      return;
+    }
+    pushToCart(product, 1, Number(product.selling_price) || 0, 0, product.unit || 'unit');
+    setError(null);
+  };
+
   const addItem = () => {
     const product = products.find((candidate) => candidate.id === productId);
     const qty = Number(quantity);
@@ -172,15 +219,7 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
       return;
     }
     const saleUnit = lineUnit || product.unit || 'unit';
-    setItems((current) => {
-      const existing = current.findIndex((it) => it.product_id === product.id && it.unit_price === price && it.discount_value === disc && (it.unit ?? product.unit) === saleUnit);
-      if (existing >= 0) {
-        const next = [...current];
-        next[existing] = { ...next[existing], quantity: Math.round((next[existing].quantity + qty) * 100) / 100 };
-        return next;
-      }
-      return [...current, { product, product_id: product.id, quantity: qty, unit_price: price, discount_value: disc, unit: saleUnit }];
-    });
+    pushToCart(product, qty, price, disc, saleUnit);
     setProductId('');
     setQuery('');
     setQuantity('1');
@@ -203,7 +242,7 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
     if (!items.length) { setError('Add at least one item to the sale.'); return; }
     setSaving(true);
     setError(null);
-    const { error: rpcError } = await supabase.rpc('create_sale_with_items', {
+    const { data: saleId, error: rpcError } = await supabase.rpc('create_sale_with_items', {
       p_branch_id: branchId,
       p_customer_name: customerName.trim() || null,
       p_payment_method: paymentMethod,
@@ -213,16 +252,59 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
     });
     setSaving(false);
     if (rpcError) { setError(rpcError.message); return; }
-    onSaved();
+    if (typeof saleId === 'string' && saleId) {
+      setCompletedSaleId(saleId);
+    } else {
+      onSaved();
+    }
+  };
+
+  const startNewSale = () => {
+    setItems([]);
+    setProductId('');
+    setQuery('');
+    setQuantity('1');
+    setUnitPrice('0');
+    setDiscount('0');
+    setCustomerName('');
+    setAmountPaid('');
+    setPaidTouched(false);
+    setNotes('');
+    setCompletedSaleId(null);
+    setError(null);
   };
 
   return (
-    <Modal open onClose={onClose} title="Record Sale" size="lg">
+    <Modal open onClose={onClose} title={completedSaleId ? 'Sale Completed' : 'Record Sale'} size="lg">
+      {completedSaleId ? (
+      <div className="space-y-4 text-center py-4">
+        <div className="mx-auto w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">
+          <Check size={24} />
+        </div>
+        <div>
+          <p className="text-lg font-semibold text-slate-900">Sale completed</p>
+          <p className="text-sm text-slate-500 mt-1">{formatCurrency(total)} · {items.length} item{items.length === 1 ? '' : 's'} · {customerName.trim() || 'Walk-in customer'}</p>
+        </div>
+        {error && <p className="text-sm text-rose-600">{error}</p>}
+        <div className="flex flex-col sm:flex-row justify-center gap-3 pt-2">
+          <Button variant="outline" onClick={async () => { setReceiptBusy(true); setError(null); try { await downloadReceipt(completedSaleId); } catch (e: unknown) { setError(e instanceof Error ? e.message : 'Could not download the receipt.'); } setReceiptBusy(false); }} disabled={receiptBusy}>
+            <Receipt size={16} /> {receiptBusy ? 'Preparing...' : 'Download PDF'}
+          </Button>
+          <Button variant="outline" onClick={async () => { setReceiptBusy(true); setError(null); try { await printReceipt(completedSaleId); } catch (e: unknown) { setError(e instanceof Error ? e.message : 'Could not print the receipt.'); } setReceiptBusy(false); }} disabled={receiptBusy}>
+            <Printer size={16} /> Print
+          </Button>
+        </div>
+        <div className="flex flex-col sm:flex-row justify-center gap-3">
+          <Button onClick={startNewSale}><Plus size={16} /> New Sale</Button>
+          <Button variant="ghost" onClick={onSaved}>Done</Button>
+        </div>
+      </div>
+      ) : (
       <div className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">
           <Select label="Branch" value={branchId} disabled={!canChooseBranch} onChange={(event) => { setBranchId(event.target.value); setItems([]); }}>
             <option value="">Select branch...</option>
-            {branches.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}
+            {(canChooseBranch ? branches : branches.filter((candidate) => candidate.id === branchId)).map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}
           </Select>
           <Input label="Customer" value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Walk-in customer" />
         </div>
@@ -240,30 +322,58 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
             />
           </div>
           {branchKey && (
-            <div className="max-h-44 overflow-y-auto divide-y divide-slate-100 rounded-lg border border-slate-100">
+            <div>
+              <label className="flex items-center gap-2 text-xs text-slate-500 mb-1.5 cursor-pointer select-none">
+                <input type="checkbox" checked={hideOutOfStock} onChange={(e) => setHideOutOfStock(e.target.checked)} className="rounded border-slate-300" />
+                Hide out-of-stock products
+              </label>
+              <div className="max-h-44 overflow-y-auto divide-y divide-slate-100 rounded-lg border border-slate-100">
               {loadingProducts && <p className="p-3 text-sm text-slate-400">Loading products...</p>}
               {!loadingProducts && visibleProducts.length === 0 && (
                 <p className="p-3 text-sm text-slate-400">{products.length === 0 ? 'No active products in this branch\u2019s business.' : 'No products match your search.'}</p>
               )}
-              {visibleProducts.map((p) => (
-                <button
+              {visibleProducts.map((p) => {
+                const stock = stockOf(p.id);
+                const outOfStock = stock !== undefined && stock <= 0;
+                return (
+                <div
                   key={p.id}
-                  type="button"
-                  onClick={() => selectProduct(p.id)}
-                  className={`w-full flex items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-slate-50 ${productId === p.id ? 'bg-slate-900/[0.04]' : ''}`}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    if (outOfStock) { setError(`${p.name} is out of stock at this branch and cannot be added.`); return; }
+                    selectProduct(p.id);
+                  }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (outOfStock) { setError(`${p.name} is out of stock at this branch and cannot be added.`); } else selectProduct(p.id); } }}
+                  className={`w-full flex items-center justify-between gap-3 px-3 py-2 text-left text-sm ${outOfStock ? 'opacity-60' : 'hover:bg-slate-50 cursor-pointer'} ${productId === p.id ? 'bg-slate-900/[0.04]' : ''}`}
                 >
                   <span className="min-w-0">
                     <span className="block truncate font-medium text-slate-800">{p.name}</span>
-                    <span className="block text-xs text-slate-400">{formatUnitQuantity(1, p.unit)} Â· {formatCurrency(Number(p.selling_price))}</span>
+                    <span className="block text-xs text-slate-400">{formatUnitQuantity(1, p.unit)} · {formatCurrency(Number(p.selling_price))}</span>
                   </span>
-                  {stockByProduct[p.id] !== undefined && (
-                    <span className={`text-xs font-medium shrink-0 ${(stockByProduct[p.id] ?? 0) > 0 ? 'text-slate-400' : 'text-rose-500'}`}>
-                      {formatUnitQuantity(stockByProduct[p.id], p.unit)} in stock
+                  {stock !== undefined && (
+                    <span className={`text-xs font-medium shrink-0 ${stock > 0 ? 'text-slate-400' : 'text-rose-500'}`}>
+                      {stock > 0 ? `${formatUnitQuantity(stock, p.unit)} in stock` : 'Out of stock'}
                     </span>
                   )}
-                  {productId === p.id && <span className="text-xs font-semibold text-emerald-600 shrink-0">Selected</span>}
-                </button>
-              ))}
+                  <span className="flex items-center gap-1 shrink-0">
+                    {!outOfStock && (
+                      <button
+                        type="button"
+                        title={`Quick add 1 ${p.unit || 'unit'} of ${p.name}`}
+                        aria-label={`Quick add ${p.name}`}
+                        onClick={(e) => { e.stopPropagation(); quickAdd(p); }}
+                        className="p-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-900 hover:text-white hover:border-slate-900"
+                      >
+                        <Plus size={14} />
+                      </button>
+                    )}
+                    {productId === p.id && <span className="text-xs font-semibold text-emerald-600">Selected</span>}
+                  </span>
+                </div>
+                );
+              })}
+              </div>
             </div>
           )}
           {selectedProduct && (
@@ -302,7 +412,7 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
               <div className="flex items-center justify-between">
                 <span className="text-xs text-slate-500">
                   Line total: <strong className="text-slate-800">{formatCurrency((Number(quantity) || 0) * (Number(unitPrice) || 0) - (Number(discount) || 0))}</strong>
-                  {' '}Â· {formatUnitQuantity(Number(quantity) || 0, selectedProduct.unit)}
+                  {' '}· {formatUnitQuantity(Number(quantity) || 0, selectedProduct.unit)}
                 </span>
                 <Button size="sm" onClick={addItem}><Plus size={14} /> Add item</Button>
               </div>
@@ -316,7 +426,7 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
               <div className="flex items-center justify-between gap-3 p-3 text-sm" key={`${item.product_id}-${index}`}>
                 <span className="min-w-0">
                   <span className="block truncate font-medium text-slate-800">{item.product.name}</span>
-                  <span className="block text-xs text-slate-400">{formatUnitQuantity(item.quantity, item.unit ?? item.product.unit)} @ {formatCurrency(item.unit_price)}{item.discount_value > 0 ? ` (âˆ’${formatCurrency(item.discount_value)})` : ''}</span>
+                  <span className="block text-xs text-slate-400">{formatUnitQuantity(item.quantity, item.unit ?? item.product.unit)} @ {formatCurrency(item.unit_price)}{item.discount_value > 0 ? ` (-${formatCurrency(item.discount_value)})` : ''}</span>
                 </span>
                 <span className="font-semibold shrink-0">{formatCurrency(item.quantity * item.unit_price - item.discount_value)}</span>
                 <button className="text-rose-500 hover:text-rose-700 shrink-0" onClick={() => setItems((current) => current.filter((_, i) => i !== index))} aria-label="Remove item">
@@ -358,9 +468,10 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
         {error && <p className="text-sm text-rose-600">{error}</p>}
         <div className="flex justify-end gap-3">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={complete} disabled={saving || items.length === 0}>{saving ? 'Saving...' : `Complete Sale Â· ${formatCurrency(total)}`}</Button>
+          <Button onClick={complete} disabled={saving || items.length === 0}>{saving ? 'Saving...' : `Complete Sale · ${formatCurrency(total)}`}</Button>
         </div>
       </div>
+      )}
     </Modal>
   );
 }

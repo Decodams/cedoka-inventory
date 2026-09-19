@@ -83,8 +83,21 @@ export function BusinessBranchPage() {
     return [...counts.entries()];
   };
 
-  const handleDeleteCategory = async (cat: Category) => {
-    const confirmed = window.confirm(`Delete category "${cat.name}"?`);
+  const handleDeleteUnit = async (u: Unit) => {
+    if (!window.confirm(`Permanently delete unit "${u.name}"? Staff assignments to it are removed (accounts are kept). This cannot be undone.`)) return;
+    const { error: fnError } = await supabase.functions.invoke('delete-organization', {
+      body: { p_entity: 'unit', p_id: u.id },
+    });
+    if (fnError) {
+      window.alert(fnError.message.includes('Failed to send a request')
+        ? 'Delete service is unreachable. Ask an administrator to deploy the delete-organization function.'
+        : fnError.message);
+      return;
+    }
+    refetchUnits();
+  };
+
+  const handleDeleteCategory = async (cat: Category) => {    const confirmed = window.confirm(`Delete category "${cat.name}"?`);
     if (!confirmed) return;
     const { data: prods } = await supabase.from('products').select('id').eq('category_id', cat.id).limit(1);
     if (prods && prods.length > 0) {
@@ -296,6 +309,16 @@ export function BusinessBranchPage() {
                                 >
                                   <Pencil size={11} />
                                 </button>
+                                {hasRole(user, 'super_admin') && (
+                                  <button
+                                    type="button"
+                                    title="Delete unit"
+                                    onClick={() => handleDeleteUnit(u)}
+                                    className="text-slate-400 hover:text-rose-600"
+                                  >
+                                    <Trash2 size={11} />
+                                  </button>
+                                )}
                               </div>
                             )}
                           </div>
@@ -441,6 +464,7 @@ export function BusinessBranchPage() {
       {showBizModal && (
         <BusinessFormModal
           business={editingBiz}
+          isSuperAdmin={canManageBusinesses && hasRole(user, 'super_admin')}
           onClose={() => {
             setShowBizModal(false);
             setEditingBiz(null);
@@ -457,6 +481,7 @@ export function BusinessBranchPage() {
         <BranchFormModal
           branch={editingBranch}
           business={selectedBusiness}
+          isSuperAdmin={hasRole(user, 'super_admin')}
           onClose={() => {
             setShowBranchModal(false);
             setEditingBranch(null);
@@ -510,10 +535,12 @@ export function BusinessBranchPage() {
 
 function BusinessFormModal({
   business,
+  isSuperAdmin,
   onClose,
   onSaved,
 }: {
   business: Business | null;
+  isSuperAdmin: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -558,6 +585,24 @@ function BusinessFormModal({
 
   const handleDelete = async () => {
     if (!business) return;
+    if (isSuperAdmin) {
+      if (!window.confirm(`Permanently delete business "${business.name}" and everything under it? Staff accounts are kept and moved to Default for reassignment. Sales history is preserved under Default. This cannot be undone.`)) return;
+      setSaving(true);
+      setError(null);
+      const { error: fnError } = await supabase.functions.invoke('delete-organization', {
+        body: { p_entity: 'business', p_id: business.id },
+      });
+      if (fnError) {
+        setError(fnError.message.includes('Failed to send a request')
+          ? 'Delete service is unreachable. Ask an administrator to deploy the delete-organization function.'
+          : fnError.message);
+        setSaving(false);
+        return;
+      }
+      setSaving(false);
+      onSaved();
+      return;
+    }
     if (!window.confirm(`Delete business "${business.name}"? Businesses with branches, products or staff cannot be deleted — they will be deactivated instead.`)) return;
     setSaving(true);
     setError(null);
@@ -636,11 +681,13 @@ function BusinessFormModal({
 function BranchFormModal({
   branch,
   business,
+  isSuperAdmin,
   onClose,
   onSaved,
 }: {
   branch: Branch | null;
   business: Business;
+  isSuperAdmin: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -703,6 +750,24 @@ function BranchFormModal({
 
   const handleDeleteBranch = async () => {
     if (!branch) return;
+    if (isSuperAdmin) {
+      if (!window.confirm(`Permanently delete branch "${branch.name}" and everything under it? Staff accounts are kept (branch cleared). Sales history is preserved under Default. This cannot be undone.`)) return;
+      setSaving(true);
+      setError(null);
+      const { error: fnError } = await supabase.functions.invoke('delete-organization', {
+        body: { p_entity: 'branch', p_id: branch.id },
+      });
+      if (fnError) {
+        setError(fnError.message.includes('Failed to send a request')
+          ? 'Delete service is unreachable. Ask an administrator to deploy the delete-organization function.'
+          : fnError.message);
+        setSaving(false);
+        return;
+      }
+      setSaving(false);
+      onSaved();
+      return;
+    }
     if (!window.confirm(`Delete branch "${branch.name}"? Branches with activity cannot be deleted — they will be deactivated instead.`)) return;
     setSaving(true);
     setError(null);

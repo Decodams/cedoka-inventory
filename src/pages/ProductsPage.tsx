@@ -165,82 +165,86 @@ export function ProductsPage() {
 
       {filtered.length > 0 ? (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filtered.map((p) => (
-            <div key={p.id} className="bg-white rounded-2xl border border-slate-200 p-5 hover:border-slate-300 transition-colors">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">
-                    <Package size={20} />
-                  </div>
-                  <div className="min-w-0">
-                    <h3 className="text-sm font-semibold text-slate-900 truncate">{p.name}</h3>
-                    {p.sku && <p className="text-xs text-slate-400">SKU: {p.sku}</p>}
-                  </div>
-                </div>
-                {canManage && (
-                  <button
-                    onClick={() => { setEditing(p); setShowModal(true); }}
-                    className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-                  >
-                    <Pencil size={15} />
-                  </button>
-                )}
+          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50/50">
+                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3">Name</th>
+                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3">Category</th>
+                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3">Brand</th>
+                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3">Unit</th>
+                    <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3">Cost</th>
+                    <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3">Price</th>
+                    <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3">Stock</th>
+                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3">Status</th>
+                    <th className="px-5 py-3"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {filtered.map((p) => (
+                    <tr key={p.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="px-5 py-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-9 h-9 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center text-sm font-semibold shrink-0">
+                            {p.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-slate-900 truncate">{p.name}</p>
+                            {p.sku && <p className="text-xs text-slate-400 truncate">SKU: {p.sku}</p>}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-5 py-3">{p.category ? <Badge className="bg-slate-100 text-slate-600 border-slate-200"><Tag size={10} className="mr-1" />{p.category.name}</Badge> : <span className="text-slate-400 text-sm">—</span>}</td>
+                      <td className="px-5 py-3">{p.brand ? <span className="text-sm text-slate-600">{p.brand}</span> : <span className="text-slate-400">—</span>}</td>
+                      <td className="px-5 py-3"><Badge className="bg-emerald-50 text-emerald-700 border-emerald-100">{p.unit}</Badge></td>
+                      <td className="text-right px-5 py-3 text-sm text-slate-600">{formatCurrency(Number(p.cost_price))}</td>
+                      <td className="text-right px-5 py-3 text-sm font-medium text-slate-900">{formatCurrency(Number(p.selling_price))}</td>
+                      <td className="text-right px-5 py-3 text-sm text-slate-600">{p.min_stock_level} {p.unit}</td>
+                      <td className="px-5 py-3">
+                        <Badge className={p.is_active ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-gray-100 text-gray-500 border-gray-200'}>
+                          {p.is_active ? 'Active' : 'Inactive'}
+                        </Badge>
+                      </td>
+                      <td className="px-5 py-3 text-right">
+                        {canManage && (
+                          <button
+                            onClick={() => { setEditing(p); setShowModal(true); }}
+                            className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                          >
+                            <Pencil size={15} />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="p-4 border-t border-slate-100">
+              <div className="flex justify-between items-center text-sm text-slate-500">
+                <span>Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, filtered.length)} of {filtered.length} products</span>
+                <span>Page {page} of {Math.ceil(filtered.length / pageSize)}</span>
               </div>
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {p.category && (
-                  <Badge className="bg-slate-100 text-slate-600 border-slate-200">
-                    <Tag size={10} className="mr-1" />{p.category.name}
-                  </Badge>
-                )}
-                {p.brand && <Badge className="bg-blue-50 text-blue-600 border-blue-100">{p.brand}</Badge>}
-                {p.unit && <Badge className="bg-emerald-50 text-emerald-700 border-emerald-100">{p.unit}</Badge>}
-                {!p.is_active && <Badge className="bg-gray-100 text-gray-500 border-gray-200">Inactive</Badge>}
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
-                <div>
-                  <p className="text-slate-400">Cost Price</p>
-                  <p className="font-medium text-slate-700">{formatCurrency(Number(p.cost_price))}</p>
-                </div>
-                <div>
-                  <p className="text-slate-400">Selling Price</p>
-                  <p className="font-medium text-slate-700">{formatCurrency(Number(p.selling_price))}</p>
-                </div>
-                <div>
-                  <p className="text-slate-400">Min Stock</p>
-                  <p className="font-medium text-slate-700">{p.min_stock_level} {p.unit}</p>
-                </div>
-                <div>
-                  <p className="text-slate-400">Reorder At</p>
-                  <p className="font-medium text-slate-700">{p.reorder_level} {p.unit}</p>
-                </div>
+              <div className="flex gap-2 justify-center">
+                <Button variant="ghost" onClick={()=>{setPage(p=> Math.max(1, p - 1));}} disabled={page===1}>
+                  Prev
+                </Button>
+                <Button variant="ghost" onClick={()=>{setPage(p=> Math.min(Math.ceil(filtered.length / pageSize), p + 1));}} disabled={page>=Math.ceil(filtered.length / pageSize)}>
+                  Next
+                </Button>
               </div>
             </div>
-          ))}
-        </div>
-        <div className="p-4 border-t border-slate-100">
-          <div className="flex justify-between items-center text-sm text-slate-500">
-            <span>Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, filtered.length)} of {filtered.length} products</span>
-            <span>Page {page} of {Math.ceil(filtered.length / pageSize)}</span>
           </div>
-          <div className="flex gap-2 justify-center">
-            <Button variant="ghost" onClick={()=>{setPage(p=> Math.max(1, p - 1));}} disabled={page===1}>
-              Prev
-            </Button>
-            <Button variant="ghost" onClick={()=>{setPage(p=> Math.min(Math.ceil(filtered.length / pageSize), p + 1));}} disabled={page>=Math.ceil(filtered.length / pageSize)}>
-              Next
-            </Button>
-          </div>
-        </div>
-        </>
-      ) : (
-        <EmptyState
-          icon={<Package size={32} />}
-          title="No products found"
-          description="Add your first product to start tracking inventory and stock levels."
-          action={canManage && <Button onClick={() => setShowModal(true)}><Plus size={18} /> Add Product</Button>}
-        />
-      )}
+          </>
+        ) : (
+          <EmptyState
+            icon={<Package size={32} />}
+            title="No products found"
+            description="Add your first product to start tracking inventory and stock levels."
+            action={canManage && <Button onClick={() => setShowModal(true)}><Plus size={18} /> Add Product</Button>}
+          />
+        )}
 
       {showModal && (
         <ProductFormModal
@@ -251,6 +255,7 @@ export function ProductsPage() {
           currentUser={user}
           canDelete={canDeleteProduct}
           measurementUnits={measurementUnits ?? []}
+          allProducts={products ?? []}
           onClose={() => { setShowModal(false); setEditing(null); }}
           onSaved={(message) => { clearQueryCache('products:'); setPage(1); refetch(); refetchCategories(); refetchMeasurementUnits(); setShowModal(false); setEditing(null); if (message) setNotice(message); }}
         />
@@ -520,13 +525,14 @@ function CategoryManagerModal({
 }
 
 function ProductFormModal({
-  product, businesses, categories, suppliers, measurementUnits, currentUser, canDelete, onClose, onSaved,
+  product, businesses, categories, suppliers, measurementUnits, allProducts, currentUser, canDelete, onClose, onSaved,
 }: {
   product: Product | null;
   businesses: Business[];
   categories: Category[];
   suppliers: Supplier[];
   measurementUnits: BusinessMeasurementUnit[];
+  allProducts: Product[];
   currentUser: { role?: { name: string }; business_id: string | null } | null;
   canDelete: boolean;
   onClose: () => void;
@@ -596,6 +602,11 @@ function ProductFormModal({
     }
     if (!unit.trim()) {
       setError(isFarm ? 'Unit is required (e.g. bag, crate, basket, kilo)' : 'Unit is required (e.g. pcs, box)');
+      return;
+    }
+    const duplicate = allProducts.find((p) => p.id !== product?.id && p.business_id === businessId && p.name.trim().toLowerCase() === name.trim().toLowerCase());
+    if (duplicate) {
+      setError(`A product named "${duplicate.name}" already exists. Edit it instead of adding a duplicate.`);
       return;
     }
     setSaving(true);
@@ -735,10 +746,50 @@ function ProductFormModal({
 
   const handleDelete = async () => {
     if (!product) return;
-    if (!window.confirm(`Delete product "${product.name}"? Products with sales history will be deactivated instead.`)) return;
+    // Super Admin deletes go through the organization engine: clean products
+    // are removed, ones with sales history move to Default (deactivated).
+    if (hasRole(currentUser as UserProfile | null, 'super_admin')) {
+      if (!window.confirm(`Permanently delete product "${product.name}"? Items with sales history move to Default (deactivated) so records stay intact. This cannot be undone.`)) return;
+      setSaving(true);
+      setError(null);
+      const { data: orgData, error: orgError } = await supabase.functions.invoke('delete-organization', {
+        body: { p_entity: 'product', p_id: product.id },
+      });
+      if (!orgError) {
+        setSaving(false);
+        onSaved((orgData as { deactivated?: boolean } | null)?.deactivated
+          ? 'Product has sales history, so it was moved to Default and deactivated.'
+          : 'Product deleted successfully.');
+        return;
+      }
+      if (!String(orgError.message || '').includes('Failed to send a request')) {
+        setError(await edgeErrorMessage(orgError, 'Could not delete the product.'));
+        setSaving(false);
+        return;
+      }
+      // Edge unreachable: fall through to the manage-product path below.
+    } else if (!window.confirm(`Delete product "${product.name}"? Products with sales history will be deactivated instead.`)) return;
     setSaving(true);
     setError(null);
 
+    // Primary path: manage-product edge function (handles history check + RLS).
+    const { data: edgeData, error: fnError } = await supabase.functions.invoke('manage-product', {
+      body: { p_action: 'delete', p_product_id: product.id },
+    });
+    if (!fnError) {
+      setSaving(false);
+      onSaved((edgeData as { deactivated?: boolean } | null)?.deactivated
+        ? 'Product has sales history, so it was deactivated instead of deleted.'
+        : 'Product deleted successfully.');
+      return;
+    }
+    if (!String(fnError.message || '').includes('Failed to send a request')) {
+      setError(await edgeErrorMessage(fnError, 'Could not delete the product.'));
+      setSaving(false);
+      return;
+    }
+    // Fallback: direct write (deactivate when there is history, since products
+    // have no direct-delete policy).
     const { data: salesUsing } = await supabase.from('daily_sales').select('id').eq('product_id', product.id).limit(1);
     const { data: itemsUsing } = await supabase.from('sale_items').select('id').eq('product_id', product.id).limit(1);
     const hasSalesHistory = (salesUsing && salesUsing.length > 0) || (itemsUsing && itemsUsing.length > 0);
@@ -756,7 +807,7 @@ function ProductFormModal({
     } else {
       const { error: delErr } = await supabase.from('products').delete().eq('id', product.id);
       if (delErr) {
-        setError(`Could not delete product: ${delErr.message}`);
+        setError(`Could not delete product: ${delErr.message}. Ask a Super Admin to deploy the manage-product function.`);
         setSaving(false);
         return;
       }

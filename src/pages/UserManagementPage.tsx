@@ -486,6 +486,8 @@ function CreateUserModal({
 const LOCKED_ROLES = new Set(['super_admin', 'admin']);
 
 function RolesManagerModal({ onClose }: { onClose: () => void }) {
+  const { user: actor } = useAuth();
+  const isSuperAdmin = hasRole(actor, 'super_admin');
   const [list, setList] = useState<Role[]>([]);
   const [loadingRoles, setLoadingRoles] = useState(true);
   const [name, setName] = useState('');
@@ -560,6 +562,22 @@ function RolesManagerModal({ onClose }: { onClose: () => void }) {
   };
 
   const handleDelete = async (r: Role) => {    if (LOCKED_ROLES.has(r.name)) { setError('Super Admin and Admin roles are locked and cannot be deleted.'); return; }
+    if (isSuperAdmin) {
+      if (!window.confirm(`Permanently delete role "${r.display_name}"? Users holding it keep their accounts and fall back to Salesperson for reassignment. This cannot be undone.`)) return;
+      setBusy(true); setError(null);
+      const { error: fnError } = await supabase.functions.invoke('delete-organization', {
+        body: { p_entity: 'role', p_id: r.id },
+      });
+      if (fnError) {
+        setError(fnError.message.includes('Failed to send a request')
+          ? 'Delete service is unreachable. Ask an administrator to deploy the delete-organization function.'
+          : fnError.message);
+        setBusy(false);
+        return;
+      }
+      await load(); setBusy(false);
+      return;
+    }
     const { count } = await supabase.from('user_profiles').select('id', { count: 'exact', head: true }).eq('role_id', r.id);
     if ((count ?? 0) > 0) { setError(`Cannot delete "${r.display_name}" — ${count} user${count === 1 ? '' : 's'} still ${count === 1 ? 'has' : 'have'} this role. Reassign them first.`); return; }
     if (!window.confirm(`Delete role "${r.display_name}"? This cannot be undone.`)) return;
