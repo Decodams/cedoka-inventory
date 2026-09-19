@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Package, Plus, Pencil, Search, Tag, Trash2 } from 'lucide-react';
+import { Package, Plus, Pencil, Search, Tag, Trash2, Power } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSupabaseQuery, supabase, clearQueryCache } from '@/hooks/useSupabaseQuery';
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States';
@@ -21,6 +21,7 @@ export function ProductsPage() {
   const [search, setSearch] = useState('');
   const [filterBusiness, setFilterBusiness] = useState('all');
   const [notice, setNotice] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const canManage = isAtLeast(user, 'manager');
   const canManageCategories = hasRole(user, 'super_admin') || hasRole(user, 'admin') || isAtLeast(user, 'manager');
   const canDeleteProduct = hasRole(user, 'super_admin') || hasRole(user, 'admin');
@@ -119,6 +120,19 @@ export function ProductsPage() {
     );
   }, [products, search]);
 
+  const toggleProductActive = async (p: Product) => {
+    setNotice(null);
+    setActionError(null);
+    const { error: toggleErr } = await supabase.from('products').update({ is_active: !p.is_active }).eq('id', p.id);
+    if (toggleErr) {
+      setActionError(`Could not ${p.is_active ? 'deactivate' : 'activate'} product: ${toggleErr.message}`);
+      return;
+    }
+    clearQueryCache('products:');
+    refetch();
+    setNotice(`Product "${p.name}" ${p.is_active ? 'deactivated' : 'activated'} successfully.`);
+  };
+
   if (loading) return <LoadingState />;
   if (error) return <ErrorState message="Could not load products." onRetry={refetch} />;
 
@@ -144,6 +158,7 @@ export function ProductsPage() {
       </div>
 
       {notice && <p role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{notice}</p>}
+      {actionError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{actionError}</p>}
 
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
@@ -208,12 +223,22 @@ export function ProductsPage() {
                       </td>
                       <td className="px-5 py-3 text-right">
                         {canManage && (
-                          <button
-                            onClick={() => { setEditing(p); setShowModal(true); }}
-                            className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-                          >
-                            <Pencil size={15} />
-                          </button>
+                          <div className="inline-flex items-center gap-1">
+                            <button
+                              onClick={() => toggleProductActive(p)}
+                              title={p.is_active ? 'Deactivate product' : 'Activate product'}
+                              aria-label={p.is_active ? `Deactivate ${p.name}` : `Activate ${p.name}`}
+                              className={`p-1.5 rounded-lg hover:bg-slate-100 ${p.is_active ? 'text-slate-400 hover:text-slate-600' : 'text-amber-500 hover:text-amber-600'}`}
+                            >
+                              <Power size={15} />
+                            </button>
+                            <button
+                              onClick={() => { setEditing(p); setShowModal(true); }}
+                              className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                            >
+                              <Pencil size={15} />
+                            </button>
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -250,8 +275,6 @@ export function ProductsPage() {
         <ProductFormModal
           product={editing}
           businesses={businesses ?? []}
-          categories={categories ?? []}
-          suppliers={suppliers ?? []}
           currentUser={user}
           canDelete={canDeleteProduct}
           measurementUnits={measurementUnits ?? []}
@@ -525,12 +548,10 @@ function CategoryManagerModal({
 }
 
 function ProductFormModal({
-  product, businesses, categories, suppliers, measurementUnits, allProducts, currentUser, canDelete, onClose, onSaved,
+  product, businesses, measurementUnits, allProducts, currentUser, canDelete, onClose, onSaved,
 }: {
   product: Product | null;
   businesses: Business[];
-  categories: Category[];
-  suppliers: Supplier[];
   measurementUnits: BusinessMeasurementUnit[];
   allProducts: Product[];
   currentUser: { role?: { name: string }; business_id: string | null } | null;
@@ -543,8 +564,6 @@ function ProductFormModal({
 
   const [name, setName] = useState(product?.name ?? '');
   const [businessId, setBusinessId] = useState(product?.business_id ?? currentUser?.business_id ?? '');
-  const [categoryId, setCategoryId] = useState(product?.category_id ?? '');
-  const [supplierId, setSupplierId] = useState(product?.supplier_id ?? '');
   const [sku, setSku] = useState(product?.sku ?? '');
   const [brand, setBrand] = useState(product?.brand ?? '');
   const [model, setModel] = useState(product?.model ?? '');
@@ -564,12 +583,7 @@ function ProductFormModal({
   }, [product]);
   const [costPrice, setCostPrice] = useState(product?.cost_price?.toString() ?? '0');
   const [sellingPrice, setSellingPrice] = useState(product?.selling_price?.toString() ?? '0');
-  const [minStock, setMinStock] = useState(product?.min_stock_level?.toString() ?? '0');
-  const [reorderLevel, setReorderLevel] = useState(product?.reorder_level?.toString() ?? '0');
-  const [productType, setProductType] = useState(product?.product_type ?? 'simple');
-  const [warrantyMonths, setWarrantyMonths] = useState(product?.warranty_months?.toString() ?? '');
-  const [expiryTracking, setExpiryTracking] = useState(product?.expiry_tracking ?? false);
-  const [isActive, setIsActive] = useState(product?.is_active ?? true);
+  const [openingStock, setOpeningStock] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -578,20 +592,13 @@ function ProductFormModal({
   const businessUnits = measurementUnits?.filter((u) => u.business_id === businessId).map((u) => u.name) ?? [];
   const unitPresets = businessUnits.length > 0 ? businessUnits : unitOptionsFor(isFarm);
 
-  const filteredCategories = categories.filter((c) => c.business_id === businessId);
-  const filteredSuppliers = suppliers.filter((s) => s.business_id === businessId);
-
   const handleBusinessChange = (next: string) => {
     setBusinessId(next);
-    setCategoryId('');
-    setSupplierId('');
     const nextBusiness = availableBusinesses.find((b) => b.id === next) ?? null;
     if (isFarmBusiness(nextBusiness)) {
       setSku('');
       setBrand('');
       setModel('');
-      setSupplierId('');
-      setWarrantyMonths('');
     }
   };
 
@@ -609,13 +616,18 @@ function ProductFormModal({
       setError(`A product named "${duplicate.name}" already exists. Edit it instead of adding a duplicate.`);
       return;
     }
+    const openingQty = product ? 0 : Math.max(0, Number(openingStock || 0));
+    if (!product && !(openingQty >= 0)) {
+      setError('Opening stock must be zero or more.');
+      return;
+    }
     setSaving(true);
     setError(null);
     const payload = {
       name: name.trim(),
       business_id: businessId,
-      category_id: categoryId || null,
-      supplier_id: isFarm ? null : (supplierId || null),
+      category_id: product?.category_id ?? null,
+      supplier_id: isFarm ? null : (product?.supplier_id ?? null),
       sku: isFarm ? null : (sku.trim() || null),
       brand: isFarm ? null : (brand.trim() || null),
       model: isFarm ? null : (model.trim() || null),
@@ -623,12 +635,12 @@ function ProductFormModal({
       unit: unit.trim(),
       cost_price: Number(costPrice || 0),
       selling_price: Number(sellingPrice || 0),
-      min_stock_level: Number(minStock || 0),
-      reorder_level: Number(reorderLevel || 0),
-      product_type: isFarm ? 'simple' : productType,
-      warranty_months: isFarm ? null : (warrantyMonths ? Number(warrantyMonths) : null),
-      expiry_tracking: expiryTracking,
-      is_active: isActive,
+      min_stock_level: product?.min_stock_level ?? 0,
+      reorder_level: product?.reorder_level ?? 0,
+      product_type: product?.product_type ?? 'simple',
+      warranty_months: isFarm ? null : (product?.warranty_months ?? null),
+      expiry_tracking: product?.expiry_tracking ?? false,
+      is_active: product?.is_active ?? true,
     };
     const diagnoseAccess = async (): Promise<string> => {
       // Explains *why* the database refused the write (missing profile,
@@ -661,8 +673,10 @@ function ProductFormModal({
         return 'If this persists, ask a Super Admin to deploy the manage-product function or grant products.manage permission.';
       }
     };
-    const seedBalances = async (productId: string) => {
-      // Automatically initialize inventory balance rows for active branches in this business
+    const seedBalances = async (productId: string, opening: number) => {
+      // Initialize inventory balance rows for active branches in this business.
+      // Only brand-new products get an opening quantity; existing stock is
+      // managed through stock movements, never overwritten here.
       try {
         const { data: bizBranches } = await supabase
           .from('branches')
@@ -674,10 +688,10 @@ function ProductFormModal({
           const balances = bizBranches.map((br) => ({
             product_id: productId,
             branch_id: (br as { id: string }).id,
-            opening_stock: 0,
-            current_stock: 0,
-            min_stock_level: Number(minStock || 0),
-            reorder_level: Number(reorderLevel || 0),
+            opening_stock: opening,
+            current_stock: opening,
+            min_stock_level: 0,
+            reorder_level: 0,
           }));
           await supabase.from('inventory_balances').insert(balances);
         }
@@ -707,7 +721,7 @@ function ProductFormModal({
     });
     if (!fnError) {
       const savedId = product ? product.id : (edgeData as { product?: { id: string } } | null)?.product?.id;
-      if (!product && savedId) await seedBalances(savedId);
+      if (!product && savedId) await seedBalances(savedId, openingQty);
       if (savedId) await syncUnits(savedId);
       setSaving(false);
       onSaved(product ? 'Product updated successfully.' : 'Product created successfully.');
@@ -736,7 +750,7 @@ function ProductFormModal({
         setSaving(false);
         return;
       }
-      await seedBalances((created as { id: string }).id);
+      await seedBalances((created as { id: string }).id, openingQty);
       await syncUnits((created as { id: string }).id);
     }
 
@@ -861,56 +875,15 @@ function ProductFormModal({
               ))}
             </div>
           </div>
-          <Select label="Category" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-            <option value="">None</option>
-            {filteredCategories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </Select>
-          {!isFarm && (
-            <Select label="Supplier" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
-              <option value="">None</option>
-              {filteredSuppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </Select>
-          )}
         </div>
         <Textarea label="Description" value={description} onChange={(e) => setDescription(e.target.value)} />
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           <Input label="Cost Price" type="number" value={costPrice} onChange={(e) => setCostPrice(e.target.value)} />
           <Input label="Selling Price" type="number" value={sellingPrice} onChange={(e) => setSellingPrice(e.target.value)} />
-          <Input label={`Min Stock${unit ? ` (${unit})` : ''}`} type="number" value={minStock} onChange={(e) => setMinStock(e.target.value)} />
-          <Input label={`Reorder Level${unit ? ` (${unit})` : ''}`} type="number" value={reorderLevel} onChange={(e) => setReorderLevel(e.target.value)} />
+          {!product && (
+            <Input label={`Stock Quantity${unit ? ` (${unit})` : ''}`} type="number" min="0" step="any" value={openingStock} onChange={(e) => setOpeningStock(e.target.value)} placeholder="0" />
+          )}
         </div>
-        {!isFarm && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <Select label="Product Type" value={productType} onChange={(e) => setProductType(e.target.value as typeof productType)}>
-              <option value="simple">Simple</option>
-              <option value="serialized">Serialized</option>
-              <option value="batch">Batch</option>
-            </Select>
-            <Input label="Warranty (months)" type="number" value={warrantyMonths} onChange={(e) => setWarrantyMonths(e.target.value)} placeholder="Optional" />
-            <div className="flex flex-col justify-end gap-3 pb-2">
-              <label className="flex items-center gap-2 text-sm text-slate-700">
-                <input type="checkbox" checked={expiryTracking} onChange={(e) => setExpiryTracking(e.target.checked)} className="rounded border-slate-300" />
-                Expiry tracking
-              </label>
-              <label className="flex items-center gap-2 text-sm text-slate-700">
-                <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="rounded border-slate-300" />
-                Active
-              </label>
-            </div>
-          </div>
-        )}
-        {isFarm && (
-          <div className="flex flex-wrap gap-4 pb-1">
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input type="checkbox" checked={expiryTracking} onChange={(e) => setExpiryTracking(e.target.checked)} className="rounded border-slate-300" />
-              Expiry tracking
-            </label>
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="rounded border-slate-300" />
-              Active
-            </label>
-          </div>
-        )}
         {error && <p className="text-sm text-rose-600">{error}</p>}
         <div className="flex justify-between gap-3 pt-2">
           <div>

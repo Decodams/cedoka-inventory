@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+﻿import { useState, useMemo } from 'react';
 import {
   Building2,
   AlertTriangle,
@@ -30,7 +30,34 @@ import { formatCurrency, formatDate, formatNumber, isOverdue } from '@/lib/dateU
 import { hasRole, isAtLeast } from '@/lib/rbac';
 import type { Business, Branch, WeeklyReport, Issue, UserProfile, DailySale, Product } from '@/types/database';
 
-type RoleLevel = 'super_admin' | 'admin' | 'manager' | 'sales_person';
+type RoleLevel = 'super_admin' | 'admin' | 'manager' | 'sales_person' | 'supervisor' | 'accountant' | 'inventory_officer' | 'transport_officer' | 'auditor' | 'farm_operations_officer';
+
+function roleDashboardBlurb(role: string | undefined, businessName?: string | null, branchName?: string | null): string {
+  switch (role) {
+    case 'super_admin':
+      return 'Group overview';
+    case 'admin':
+      return `Business overview â€” ${businessName ?? 'all assigned businesses'}`;
+    case 'manager':
+      return `Branch operations â€” ${branchName ?? 'your branch'}`;
+    case 'supervisor':
+      return `Team oversight â€” ${branchName ?? 'your branch'}`;
+    case 'sales_person':
+      return 'Your sales dashboard';
+    case 'accountant':
+      return `Financial reconciliation â€” ${businessName ?? 'your business'}`;
+    case 'inventory_officer':
+      return `Stock accuracy â€” ${branchName ?? 'your branch'}`;
+    case 'transport_officer':
+      return 'Fleet and logistics activity';
+    case 'auditor':
+      return 'Read-only oversight';
+    case 'farm_operations_officer':
+      return `Farm operations â€” ${branchName ?? 'your branch'}`;
+    default:
+      return branchName ? `Branch overview â€” ${branchName}` : 'Your workspace overview';
+  }
+}
 
 export function DashboardPage() {
   const { user } = useAuth();
@@ -41,7 +68,6 @@ export function DashboardPage() {
 
   const [periodRange, setPeriodRange] = useState<'week' | 'month'>('week');
   const [showChangePassword, setShowChangePassword] = useState(false);
-  const isManager = roleName === 'manager';
 
   const businessesQuery = useMemo(() => {
     if (!isSuperAdmin) return supabase.from('businesses').select('*').eq('is_active', true).order('name').limit(1);
@@ -180,7 +206,8 @@ export function DashboardPage() {
             Welcome back, {user?.full_name?.split(' ')[0]}
           </h2>
           <p className="text-sm text-slate-500 mt-0.5">
-            {isSuperAdmin ? `Group overview — ${totalBusinesses} businesses, ${totalBranches} branches, ${totalStaff} staff` : isAdmin ? `Business overview — ${user?.business?.name}` : isSalesPerson ? `Your sales dashboard` : `Branch overview — ${user?.branch?.name}`}
+            {roleDashboardBlurb(roleName, user?.business?.name, user?.branch?.name)}
+            {isSuperAdmin && ` â€” ${totalBusinesses} businesses, ${totalBranches} branches, ${totalStaff} staff`}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -189,49 +216,7 @@ export function DashboardPage() {
         </div>
       </div>
 
-      {(isSuperAdmin || isManager) && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-4 min-w-0">
-              <div className="w-12 h-12 rounded-full bg-slate-900 text-white flex items-center justify-center text-lg font-bold shrink-0">
-                {user?.full_name?.charAt(0)?.toUpperCase()}
-              </div>
-              <div className="min-w-0">
-                <h3 className="text-sm font-semibold text-slate-900">{user?.full_name}</h3>
-                <p className="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5 break-all">
-                  <Mail size={12} /> {user?.email}
-                </p>
-                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5">
-                  <span className="text-xs text-slate-500 flex items-center gap-1 capitalize">
-                    <ShieldCheck size={13} className="text-emerald-500" /> {user?.role?.display_name}
-                  </span>
-                  {user?.business?.name && (
-                    <span className="text-xs text-slate-500 flex items-center gap-1">
-                      <BuildingIcon size={13} className="text-blue-500" /> {user.business.name}
-                    </span>
-                  )}
-                  {user?.branch?.name && (
-                    <span className="text-xs text-slate-500 flex items-center gap-1">
-                      <MapPin size={13} className="text-rose-500" /> {user.branch.name}
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-3 shrink-0">
-              <button
-                type="button"
-                onClick={() => setShowChangePassword(true)}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-slate-900 rounded-lg hover:bg-slate-800 active:bg-slate-950 transition-all shadow-sm"
-              >
-                <KeyRound size={16} /> Change Password
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isAdmin && !isSuperAdmin && (
+      {(
         <div className="bg-white rounded-2xl border border-slate-200 p-5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-4 min-w-0">
@@ -284,7 +269,7 @@ export function DashboardPage() {
         )}
         {isAdmin && !isSuperAdmin && (
           <>
-            <MetricCard icon={<Building2 size={20} />} label="Business" value={user?.business?.name ?? '—'} subtitle="Active unit" color="slate" />
+            <MetricCard icon={<Building2 size={20} />} label="Business" value={user?.business?.name ?? 'â€”'} subtitle="Active unit" color="slate" />
             <MetricCard icon={<MapPin size={20} />} label="Branches" value={totalBranches.toString()} subtitle="Under management" color="blue" />
             <MetricCard icon={<Users size={20} />} label="Staff" value={totalStaff.toString()} subtitle="Team members" color="emerald" />
             <MetricCard icon={<DollarSign size={20} />} label="Total Sales" value={formatCurrency(totalSalesValue)} subtitle="This week" color="emerald" />
@@ -295,7 +280,7 @@ export function DashboardPage() {
             <MetricCard icon={<Receipt size={20} />} label="My Sales" value={formatCurrency(myTotalSales)} subtitle="Completed" color="emerald" />
             <MetricCard icon={<Clock size={20} />} label="Pending" value={formatCurrency(myPendingSales)} subtitle="Awaiting payment" color="amber" />
             <MetricCard icon={<ShoppingBag size={20} />} label="Units Sold" value={myTotalUnitsSold.toString()} subtitle="This period" color="blue" />
-            <MetricCard icon={<Target size={20} />} label="Best Seller" value={bestSellingProducts[0]?.name?.slice(0, 12) ?? '—'} subtitle="Top product" color="slate" />
+            <MetricCard icon={<Target size={20} />} label="Best Seller" value={bestSellingProducts[0]?.name?.slice(0, 12) ?? 'â€”'} subtitle="Top product" color="slate" />
           </>
         )}
         {!isSuperAdmin && !isAdmin && !isSalesPerson && (
@@ -471,7 +456,7 @@ export function DashboardPage() {
                 <div className={`w-2 h-2 rounded-full shrink-0 ${report.status === 'submitted' ? 'bg-blue-500' : report.status === 'reviewed' ? 'bg-emerald-500' : report.status === 'draft' ? 'bg-amber-500' : 'bg-slate-400'}`} />
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-slate-900 truncate">{report.branch?.name}</p>
-                  <p className="text-xs text-slate-400">{report.business?.name} · {formatCurrency(Number(report.total_sales_value))} sales</p>
+                  <p className="text-xs text-slate-400">{report.business?.name} Â· {formatCurrency(Number(report.total_sales_value))} sales</p>
                 </div>
               </div>
               <Badge className={`capitalize ${report.status === 'draft' ? 'bg-gray-100 text-gray-600' : report.status === 'submitted' ? 'bg-blue-100 text-blue-700' : report.status === 'reviewed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{report.status}</Badge>

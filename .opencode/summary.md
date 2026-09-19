@@ -122,3 +122,8 @@
 - New migration 202609150010: inactive Default business+branch bucket. Pushed + verified live.
 - New edge fn delete-organization (super_admin only): business/branch/unit/product/role/user with history preserved under Default, staff accounts kept. Deployed.
 - UI: super_admin deletes route to engine (business/branch/unit/role/product); admin keeps deactivate fallback. delete-user extended (manager links, exception reporter). Redeployed.
+
+## Round 15 - simple product form, toggle, per-role dashboards (tsc 0, eslint 0, build 0)
+- ProductFormModal stripped to 10 fields (name, business, sku/brand/model non-farm, primary unit + also-sold-as, opening stock on create, description, cost, selling); technical fields preserved on update; opening stock seeds balances.
+- Products table: Active toggle (Power) for manager+ with feedback banners.
+- Dashboard: per-role blurb for all 10 roles; single universal profile card with Change Password for every role (was admin/manager/super_admin only).
