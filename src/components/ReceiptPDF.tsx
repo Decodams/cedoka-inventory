@@ -4,10 +4,11 @@ import { supabase } from '@/lib/supabaseClient';
 import { formatCurrency, formatDate } from '@/lib/dateUtils';
 import logoUrl from '@/logo.jpeg';
 
-const COMPANY = 'CEDOKA GLOBAL MALL';
+const COMPANY = 'CEDOKA MALL';
 const ADDRESS_1 = '35, Ailegun Road, Ejigbo, Lagos';
 const ADDRESS_2 = 'Top Mak Plaza, Awka';
-const CONTACT = '07045851131 | cedokamall@gmail.com | cedokamall.com';
+const CONTACT_PHONES = '07045851131 | 09128817136 | 09074190070';
+const CONTACT_ONLINE = 'cedokamall@gmail.com | cedokamall.com';
 
 interface ReceiptItem {
   quantity: number;
@@ -72,7 +73,7 @@ async function buildReceiptPdf(saleId: string): Promise<{ pdf: jsPDF; receiptNo:
   if (logo) {
     try {
       pdf.addImage(logo, 'JPEG', width / 2 - 12, y, 24, 24, undefined, 'FAST');
-      y += 27;
+      y += 31;
     } catch {
       // logo unreadable - fall through to text header
     }
@@ -87,7 +88,9 @@ async function buildReceiptPdf(saleId: string): Promise<{ pdf: jsPDF; receiptNo:
   y += 4;
   pdf.text(`2: ${ADDRESS_2}`, width / 2, y, { align: 'center' });
   y += 4;
-  pdf.text(CONTACT, width / 2, y, { align: 'center' });
+  pdf.text(CONTACT_PHONES, width / 2, y, { align: 'center' });
+  y += 4;
+  pdf.text(CONTACT_ONLINE, width / 2, y, { align: 'center' });
   y += 7;
   pdf.setDrawColor(180);
   pdf.line(margin, y, width - margin, y);

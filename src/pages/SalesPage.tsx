@@ -464,10 +464,10 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
             <p className="px-4 pt-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Receipt preview</p>
             <div className="p-4 max-w-sm mx-auto text-center">
               <img src={logoUrl} alt="Cedoka" className="h-12 w-12 object-contain mx-auto rounded-lg" />
-              <p className="mt-2 text-sm font-bold tracking-wide text-slate-900">CEDOKA GLOBAL MALL</p>
+              <p className="mt-3 text-sm font-bold tracking-wide text-slate-900">CEDOKA MALL</p>
               <p className="text-[11px] text-slate-500">1: 35, Ailegun Road, Ejigbo, Lagos</p>
               <p className="text-[11px] text-slate-500">2: Top Mak Plaza, Awka</p>
-              <p className="text-[11px] text-slate-500">07045851131 | cedokamall@gmail.com | cedokamall.com</p>
+              <p className="text-[11px] text-slate-500">07045851131 | 09128817136 | 09074190070 | cedokamall@gmail.com | cedokamall.com</p>
               <div className="my-2 border-t border-dashed border-slate-300" />
               <p className="text-xs font-bold tracking-widest text-slate-900">SALES RECEIPT</p>
               <div className="mt-2 text-left text-[11px] text-slate-600 space-y-0.5">

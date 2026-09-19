@@ -138,3 +138,6 @@
 - SECURITY FIX in update-user-status (deployed): hierarchy rank check - admin can no longer approve/deactivate fellow admins or super_admins; frontend buttons gated by same rule.
 - Super admin dashboard: Products / Out of Stock / Pending Approvals / Roles Defined row + dynamic all-roles staff distribution.
 - Sidebar now fixed-position with lg:pl-64 content offset + overscroll containment (never scrolls with main).
+
+## Round 18 - receipt header polish (tsc 0, build 0)
+- Receipt name CEDOKA GLOBAL MALL -> CEDOKA MALL (PDF + HTML preview); added 09128817136, 09074190070 (two-line layout on PDF); logo/name gap widened.
