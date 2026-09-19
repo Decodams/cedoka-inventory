@@ -132,3 +132,9 @@
 - Root cause of h.autoTable error: jspdf v4 + autotable v5 needs functional import; switched to autoTable(pdf, ...) API.
 - PDF redesigned: logo image, CEDOKA GLOBAL MALL, both addresses, attendant (salesperson), unit column, NGN-safe amounts.
 - Live HTML receipt preview in Record Sale (updates with cart) + post-sale Download/Print panel + table Print buttons.
+
+## Round 17 - sale details, hierarchy fix, exec dashboard, fixed sidebar (verified + deployed)
+- New SaleDetailModal (click any sale row as manager+): receipt no, date/time, status, customer, attendant+role, branch/business, item lines with units, totals, notes, Download/Print. Row buttons stop propagation.
+- SECURITY FIX in update-user-status (deployed): hierarchy rank check - admin can no longer approve/deactivate fellow admins or super_admins; frontend buttons gated by same rule.
+- Super admin dashboard: Products / Out of Stock / Pending Approvals / Roles Defined row + dynamic all-roles staff distribution.
+- Sidebar now fixed-position with lg:pl-64 content offset + overscroll containment (never scrolls with main).

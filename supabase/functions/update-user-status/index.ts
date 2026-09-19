@@ -22,9 +22,18 @@ Deno.serve(async (request) => {
   if (actorError) return reply({ error: actorError.message }, 500);
   const actorRole = (actor?.role as { name?: string } | null)?.name;
   if (!actor?.is_active || !['super_admin', 'admin'].includes(actorRole ?? '')) return reply({ error: 'Not authorized' }, 403);
-  const { data: target, error: targetError } = await admin.from('user_profiles').select('id, email, business_id').eq('id', body.p_user_id).maybeSingle();
+  const { data: target, error: targetError } = await admin.from('user_profiles').select('id, email, business_id, role:roles(name)').eq('id', body.p_user_id).maybeSingle();
   if (targetError) return reply({ error: targetError.message }, 500);
   if (!target) return reply({ error: 'User not found' }, 404);
+  const targetRole = (target.role as { name?: string } | null)?.name;
+  // Super Admin accounts are locked: no status changes through this function.
+  if (targetRole === 'super_admin') return reply({ error: 'Super Admin accounts are locked' }, 403);
+  // Hierarchy: an actor may only change users strictly below their own rank,
+  // so an Admin can never approve, reject, activate or deactivate a fellow Admin.
+  const ROLE_RANK: Record<string, number> = { super_admin: 5, admin: 4, manager: 3, supervisor: 2, sales_person: 1, accountant: 1, inventory_officer: 1, transport_officer: 1, auditor: 0, farm_operations_officer: 1 };
+  if ((ROLE_RANK[actorRole ?? ''] ?? -1) <= (ROLE_RANK[targetRole ?? ''] ?? -1)) {
+    return reply({ error: 'You can only change users below your own rank' }, 403);
+  }
   if (actorRole === 'admin' && target.business_id !== actor.business_id) return reply({ error: 'Admins can only manage users in their own business' }, 403);
   const approvalStatus = action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : undefined;
   const { error: updateError } = await admin.from('user_profiles').update({

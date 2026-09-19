@@ -158,7 +158,7 @@ export function AppShell({ currentPage, onPageChange, onBack, canGoBack, childre
 
       {/* Sidebar */}
       <aside
-        className={`fixed lg:sticky top-0 left-0 z-40 h-screen w-64 bg-white border-r border-slate-200 flex flex-col transition-transform duration-300 ${
+        className={`fixed inset-y-0 left-0 z-40 w-64 bg-white border-r border-slate-200 flex flex-col transition-transform duration-300 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
       >
@@ -181,7 +181,7 @@ export function AppShell({ currentPage, onPageChange, onBack, canGoBack, childre
           </button>
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-4">
+        <nav className="flex-1 overflow-y-auto overscroll-contain px-3 py-4 space-y-4">
           {(Object.keys(SECTION_LABELS) as Array<NavItem['section']>).map((section) => {
             const items = visibleItems.filter((i) => i.section === section);
             if (items.length === 0) return null;
@@ -225,7 +225,7 @@ export function AppShell({ currentPage, onPageChange, onBack, canGoBack, childre
       </aside>
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 lg:pl-64">
         {/* Top bar */}
         <header className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 lg:px-8 py-3.5 flex items-center justify-between">
           <div className="flex items-center gap-3">

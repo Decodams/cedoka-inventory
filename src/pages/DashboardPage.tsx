@@ -60,7 +60,7 @@ function roleDashboardBlurb(role: string | undefined, businessName?: string | nu
 }
 
 export function DashboardPage() {
-  const { user } = useAuth();
+  const { user, roles } = useAuth();
   const roleName = user?.role?.name as RoleLevel | undefined;
   const isSuperAdmin = hasRole(user, 'super_admin');
   const isAdmin = isAtLeast(user, 'admin');
@@ -138,6 +138,24 @@ export function DashboardPage() {
   const { data: users } = useSupabaseQuery<UserProfile[]>(() => usersQuery, [usersQuery], {
     cacheKey: `dash:users:${roleName}:${user?.id ?? '-'}`,
   });
+
+  // Super Admin command-center aggregates: catalog size, empty shelves and
+  // the approval queue. Skipped for other roles.
+  const { data: allProducts } = useSupabaseQuery<Product[]>(
+    isSuperAdmin ? () => supabase.from('products').select('id,name,unit,is_active,business_id').order('name').limit(500) : null,
+    [isSuperAdmin],
+    { cacheKey: isSuperAdmin ? 'dash:admin:products' : undefined, ttlMs: 60_000 },
+  );
+  const { data: pendingUsers } = useSupabaseQuery<UserProfile[]>(
+    isSuperAdmin ? () => supabase.from('user_profiles').select('id').eq('approval_status', 'pending').limit(100) : null,
+    [isSuperAdmin],
+    { cacheKey: isSuperAdmin ? 'dash:admin:pending' : undefined, ttlMs: 60_000 },
+  );
+  const { data: emptyShelves } = useSupabaseQuery<Array<{ id: string }>>(
+    isSuperAdmin ? () => supabase.from('inventory_balances').select('id').lte('current_stock', 0).limit(500) : null,
+    [isSuperAdmin],
+    { cacheKey: isSuperAdmin ? 'dash:admin:nostock' : undefined, ttlMs: 60_000 },
+  );
 
   const mySales = useMemo(() => sales ?? [], [sales]);
   const myTotalSales = mySales.filter((s) => s.status === 'completed').reduce((sum, s) => sum + Number(s.unit_price) * s.quantity - Number(s.discount_value), 0);
@@ -293,6 +311,15 @@ export function DashboardPage() {
         )}
       </div>
 
+      {isSuperAdmin && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
+          <MetricCard icon={<Package size={20} />} label="Products" value={String(allProducts?.length ?? 0)} subtitle={`${allProducts?.filter((p) => p.is_active).length ?? 0} active`} color="blue" />
+          <MetricCard icon={<AlertTriangle size={20} />} label="Out of Stock" value={String(emptyShelves?.length ?? 0)} subtitle="Empty shelves" color="rose" />
+          <MetricCard icon={<Clock size={20} />} label="Pending Approvals" value={String(pendingUsers?.length ?? 0)} subtitle="Awaiting review" color="amber" />
+          <MetricCard icon={<Users size={20} />} label="Roles Defined" value={String(roles?.length ?? 0)} subtitle="System roles" color="slate" />
+        </div>
+      )}
+
       <div className="bg-white rounded-2xl border border-slate-200 p-5">
         <div className="flex items-center justify-between gap-3 mb-4">
           <div>
@@ -375,16 +402,17 @@ export function DashboardPage() {
               <Users size={18} /> Staff Distribution
             </h3>
             <div className="space-y-3">
-              {['super_admin', 'admin', 'manager', 'sales_person'].map((role) => {
-                const count = users?.filter((u) => u.role?.name === role).length ?? 0;
+              {(roles && roles.length > 0 ? roles : []).map((r) => {
+                const count = users?.filter((u) => u.role?.name === r.name).length ?? 0;
                 const total = users?.length ?? 1;
                 const pct = Math.round((count / total) * 100);
                 const colors: Record<string, string> = { super_admin: 'bg-rose-500', admin: 'bg-blue-500', manager: 'bg-emerald-500', sales_person: 'bg-amber-500' };
+                const bar = colors[r.name] ?? 'bg-slate-400';
                 return (
-                  <div key={role} className="flex items-center gap-3">
-                    <div className="w-24 text-xs text-slate-600 capitalize">{role.replace('_', ' ')}</div>
+                  <div key={r.id} className="flex items-center gap-3">
+                    <div className="w-24 text-xs text-slate-600 capitalize truncate" title={r.display_name}>{r.display_name}</div>
                     <div className="flex-1 h-3 bg-slate-100 rounded-full overflow-hidden">
-                      <div className={`h-full ${colors[role]} rounded-full transition-all duration-500`} style={{ width: `${pct}%` }} />
+                      <div className={`h-full ${bar} rounded-full transition-all duration-500`} style={{ width: `${pct}%` }} />
                     </div>
                     <div className="w-12 text-right text-xs font-semibold text-slate-900">{count}</div>
                   </div>

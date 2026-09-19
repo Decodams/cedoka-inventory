@@ -162,12 +162,12 @@ export function UserManagementPage() {
                       </Badge>
                     </td>
                     <td className="px-5 py-3 text-right">
-                      {(isAtLeast(user, 'admin') && p.id !== user?.id && p.approval_status === 'pending') ? (
+                      {(isAtLeast(user, 'admin') && p.id !== user?.id && canEdit(p) && p.approval_status === 'pending') ? (
                         <div className="flex flex-wrap justify-end gap-2">
                           <Button variant="primary" size="sm" onClick={() => handleUserStatus(p.id, 'approve')}><Check size={14} /> Approve</Button>
                           <Button variant="danger" size="sm" onClick={() => handleUserStatus(p.id, 'reject')}><XCircle size={14} /> Reject</Button>
                         </div>
-                      ) : isAtLeast(user, 'admin') && p.id !== user?.id ? (
+                      ) : isAtLeast(user, 'admin') && p.id !== user?.id && canEdit(p) ? (
                         <div className="flex flex-wrap justify-end gap-2">
                           {canEdit(p) && <Button variant="ghost" size="sm" onClick={() => setEditingUser(p)}><Pencil size={14} /> Edit</Button>}
                           <Button variant="ghost" size="sm" onClick={() => handleUserStatus(p.id, p.is_active ? 'deactivate' : 'activate')}><Power size={14} /> {p.is_active ? 'Deactivate' : 'Activate'}</Button>
