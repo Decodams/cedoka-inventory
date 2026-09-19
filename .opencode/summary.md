@@ -127,3 +127,8 @@
 - ProductFormModal stripped to 10 fields (name, business, sku/brand/model non-farm, primary unit + also-sold-as, opening stock on create, description, cost, selling); technical fields preserved on update; opening stock seeds balances.
 - Products table: Active toggle (Power) for manager+ with feedback banners.
 - Dashboard: per-role blurb for all 10 roles; single universal profile card with Change Password for every role (was admin/manager/super_admin only).
+
+## Round 16 - receipts fixed + redesigned (tsc 0, eslint 0 errors, build 0)
+- Root cause of h.autoTable error: jspdf v4 + autotable v5 needs functional import; switched to autoTable(pdf, ...) API.
+- PDF redesigned: logo image, CEDOKA GLOBAL MALL, both addresses, attendant (salesperson), unit column, NGN-safe amounts.
+- Live HTML receipt preview in Record Sale (updates with cart) + post-sale Download/Print panel + table Print buttons.

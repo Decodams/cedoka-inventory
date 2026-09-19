@@ -12,6 +12,7 @@ import { hasRole, isAtLeast } from '@/lib/rbac';
 import { formatUnitQuantity } from '@/lib/business';
 import { SALE_STATUS_LABELS, SALE_STATUS_STYLES } from '@/lib/statusStyles';
 import { useReceiptPDF } from '@/components/ReceiptPDF';
+import logoUrl from '@/logo.jpeg';
 import type { Branch, DailySale, Product, SaleItem, UserProfile } from '@/types/database';
 
 export function SalesPage() {
@@ -453,6 +454,54 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
             onChange={(event) => { setAmountPaid(event.target.value); setPaidTouched(true); }}
           />
         </div>
+
+        {items.length > 0 && (
+          <div className="rounded-xl border border-slate-200 overflow-hidden">
+            <p className="px-4 pt-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Receipt preview</p>
+            <div className="p-4 max-w-sm mx-auto text-center">
+              <img src={logoUrl} alt="Cedoka" className="h-12 w-12 object-contain mx-auto rounded-lg" />
+              <p className="mt-2 text-sm font-bold tracking-wide text-slate-900">CEDOKA GLOBAL MALL</p>
+              <p className="text-[11px] text-slate-500">1: 35, Ailegun Road, Ejigbo, Lagos</p>
+              <p className="text-[11px] text-slate-500">2: Top Mak Plaza, Awka</p>
+              <p className="text-[11px] text-slate-500">07045851131 | cedokamall@gmail.com | cedokamall.com</p>
+              <div className="my-2 border-t border-dashed border-slate-300" />
+              <p className="text-xs font-bold tracking-widest text-slate-900">SALES RECEIPT</p>
+              <div className="mt-2 text-left text-[11px] text-slate-600 space-y-0.5">
+                <p>Date: {formatDate(new Date().toISOString().slice(0, 10))}</p>
+                <p>Branch: {branch?.name ?? '-'}</p>
+                <p>Customer: {customerName.trim() || 'Walk-in'}</p>
+                <p>Attendant: {currentUser?.full_name ?? 'Staff'}</p>
+              </div>
+              <table className="mt-2 w-full text-[11px]">
+                <thead>
+                  <tr className="border-y border-slate-200 text-left text-slate-500">
+                    <th className="py-1 pr-2 font-semibold">Item</th>
+                    <th className="py-1 pr-2 font-semibold text-right">Qty</th>
+                    <th className="py-1 pr-2 font-semibold">Unit</th>
+                    <th className="py-1 font-semibold text-right">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((item, index) => (
+                    <tr key={`${item.product_id}-${index}`} className="border-b border-slate-100 text-slate-700">
+                      <td className="py-1 pr-2 text-left">{item.product.name}</td>
+                      <td className="py-1 pr-2 text-right">{item.quantity}</td>
+                      <td className="py-1 pr-2">{item.unit ?? item.product.unit ?? '-'}</td>
+                      <td className="py-1 text-right font-medium">{formatCurrency(item.quantity * item.unit_price - item.discount_value)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="mt-2 text-right text-[11px] text-slate-700 space-y-0.5">
+                <p>Discount: {formatCurrency(items.reduce((sum, item) => sum + item.discount_value, 0))}</p>
+                <p className="text-sm font-bold text-slate-900">Total: {formatCurrency(total)}</p>
+                <p>Amount paid: {formatCurrency(paid)}</p>
+                <p>Balance: {formatCurrency(total - paid)}</p>
+              </div>
+              <p className="mt-2 text-[11px] text-slate-400">Thank you for your business.</p>
+            </div>
+          </div>
+        )}
 
         <div className="rounded-xl bg-slate-50 p-4 text-center space-y-1">
           <p className="text-xs text-slate-400">Total ({items.length} item{items.length === 1 ? '' : 's'})</p>
