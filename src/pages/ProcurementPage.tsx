@@ -76,7 +76,7 @@ export function ProcurementPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-slate-900">Procurement</h2>
           <p className="text-sm text-slate-500 mt-0.5">Purchase requests, orders, and goods received tracking.</p>
@@ -255,7 +255,7 @@ function GRNModal({ purchase, currentUser, onClose, onSaved }: { purchase: Purch
   return (
     <Modal open onClose={onClose} title={`Record Goods Received — ${purchase.request_number ?? purchase.id.slice(0, 8)}`} size="xl">
       <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input label="Delivery Note No." value={deliveryNote} onChange={(e) => setDeliveryNote(e.target.value)} placeholder="Supplier delivery note" />
           <label className="flex items-center gap-2 text-sm text-slate-700 mt-6">
             <input type="checkbox" checked={isPartial} onChange={(e) => setIsPartial(e.target.checked)} className="rounded border-slate-300" />
@@ -316,11 +316,13 @@ function ViewGRNsModal({ purchase, onClose }: { purchase: PurchaseRequest; onClo
               <p className="text-xs text-slate-400">{formatDate(g.received_date)}</p>
             </div>
             {g.delivery_note_number && <p className="text-xs text-slate-400">DN: {g.delivery_note_number}</p>}
-            <div className="mt-2 text-xs">
-              <div className="grid grid-cols-5 gap-2 font-semibold text-slate-500"><span>Product</span><span>Ordered</span><span>Received</span><span>Damaged/Rejected</span><span>Short</span></div>
-              {g.items?.map((it, i) => (
-                <div key={i} className="grid grid-cols-5 gap-2 text-slate-600 mt-1"><span>{it.product?.name ?? '—'}</span><span>{it.quantity_ordered}</span><span className="text-emerald-600 font-medium">{it.quantity_received}</span><span className="text-rose-600">{it.quantity_damaged + it.quantity_rejected}</span><span className="text-amber-600">{it.quantity_short}</span></div>
-              ))}
+            <div className="mt-2 text-xs overflow-x-auto">
+              <div className="min-w-[420px]">
+                <div className="grid grid-cols-5 gap-2 font-semibold text-slate-500"><span>Product</span><span>Ordered</span><span>Received</span><span>Damaged/Rejected</span><span>Short</span></div>
+                {g.items?.map((it, i) => (
+                  <div key={i} className="grid grid-cols-5 gap-2 text-slate-600 mt-1"><span className="truncate">{it.product?.name ?? '—'}</span><span>{it.quantity_ordered}</span><span className="text-emerald-600 font-medium">{it.quantity_received}</span><span className="text-rose-600">{it.quantity_damaged + it.quantity_rejected}</span><span className="text-amber-600">{it.quantity_short}</span></div>
+                ))}
+              </div>
             </div>
           </div>
         )) : <p className="text-sm text-slate-400 py-6 text-center">No goods received notes yet. Record a GRN when delivery arrives.</p>}

@@ -215,21 +215,21 @@ export function ProductsPage() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50/50">
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3">Name</th>
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3">Category</th>
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3">Brand</th>
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3">Unit</th>
-                    <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3">Cost</th>
-                    <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3">Price</th>
-                    <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3">Stock</th>
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3">Status</th>
-                    <th className="px-5 py-3"></th>
+                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5">Name</th>
+                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5">Category</th>
+                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5">Brand</th>
+                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5">Unit</th>
+                    <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5">Cost</th>
+                    <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5">Price</th>
+                    <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5">Stock</th>
+                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5">Status</th>
+                    <th className="px-3 py-3 sm:px-5"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {filtered.map((p) => (
                     <tr key={p.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-5 py-3">
+                      <td className="px-3 py-3 sm:px-5">
                         <div className="flex items-center gap-3 min-w-0">
                           <div className="w-9 h-9 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center text-sm font-semibold shrink-0">
                             {p.name.charAt(0).toUpperCase()}
@@ -241,18 +241,18 @@ export function ProductsPage() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-5 py-3">{p.category ? <Badge className="bg-slate-100 text-slate-600 border-slate-200"><Tag size={10} className="mr-1" />{p.category.name}</Badge> : <span className="text-slate-400 text-sm">—</span>}</td>
-                      <td className="px-5 py-3">{p.brand ? <span className="text-sm text-slate-600">{p.brand}</span> : <span className="text-slate-400">—</span>}</td>
-                      <td className="px-5 py-3"><Badge className="bg-emerald-50 text-emerald-700 border-emerald-100">{p.unit}</Badge></td>
-                      <td className="text-right px-5 py-3 text-sm text-slate-600">{formatCurrency(Number(p.cost_price))}</td>
-                      <td className="text-right px-5 py-3 text-sm font-medium text-slate-900">{formatCurrency(Number(p.selling_price))}</td>
-                      <td className="text-right px-5 py-3 text-sm text-slate-600">{p.min_stock_level} {p.unit}</td>
-                      <td className="px-5 py-3">
+                      <td className="px-3 py-3 sm:px-5">{p.category ? <Badge className="bg-slate-100 text-slate-600 border-slate-200"><Tag size={10} className="mr-1" />{p.category.name}</Badge> : <span className="text-slate-400 text-sm">—</span>}</td>
+                      <td className="px-3 py-3 sm:px-5">{p.brand ? <span className="text-sm text-slate-600">{p.brand}</span> : <span className="text-slate-400">—</span>}</td>
+                      <td className="px-3 py-3 sm:px-5"><Badge className="bg-emerald-50 text-emerald-700 border-emerald-100">{p.unit}</Badge></td>
+                      <td className="text-right px-3 py-3 sm:px-5 text-sm text-slate-600">{formatCurrency(Number(p.cost_price))}</td>
+                      <td className="text-right px-3 py-3 sm:px-5 text-sm font-medium text-slate-900">{formatCurrency(Number(p.selling_price))}</td>
+                      <td className="text-right px-3 py-3 sm:px-5 text-sm text-slate-600">{p.min_stock_level} {p.unit}</td>
+                      <td className="px-3 py-3 sm:px-5">
                         <Badge className={p.is_active ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-gray-100 text-gray-500 border-gray-200'}>
                           {p.is_active ? 'Active' : 'Inactive'}
                         </Badge>
                       </td>
-                      <td className="px-5 py-3 text-right">
+                      <td className="px-3 py-3 sm:px-5 text-right">
                         {canManage && (
                           <div className="inline-flex items-center gap-1">
                             <button
@@ -278,7 +278,7 @@ export function ProductsPage() {
               </table>
             </div>
             <div className="p-4 border-t border-slate-100">
-              <div className="flex justify-between items-center text-sm text-slate-500">
+              <div className="flex flex-col sm:flex-row justify-between items-center gap-1 text-sm text-slate-500 text-center sm:text-left">
                 <span>Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, filtered.length)} of {filtered.length} products</span>
                 <span>Page {page} of {Math.ceil(filtered.length / pageSize)}</span>
               </div>

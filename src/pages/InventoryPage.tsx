@@ -151,8 +151,8 @@ export function InventoryPage() {
         <div className="bg-white rounded-xl border border-slate-200 p-4"><p className="text-xs text-slate-400">In Use</p><p className="text-lg font-bold text-blue-600">{inUseAssets}</p><p className="text-xs text-slate-500">Assigned / in use</p></div>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-        <div className="flex gap-1 bg-slate-100 rounded-lg p-1 overflow-x-auto">
+      <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+        <div className="flex gap-1 bg-slate-100 rounded-lg p-1 overflow-x-auto w-full sm:w-auto shrink-0">
           <button
             onClick={() => setTab('balances')}
             className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all whitespace-nowrap ${tab === 'balances' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}
@@ -172,7 +172,7 @@ export function InventoryPage() {
             Movement Ledger
           </button>
         </div>
-        <div className="relative flex-1 min-w-0">
+        <div className="relative flex-1 min-w-0 w-full">
           <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             placeholder="Search products..."
@@ -182,7 +182,7 @@ export function InventoryPage() {
           />
         </div>
         {isBusinessLevel && (
-          <Select value={filterBranch} onChange={(e) => setFilterBranch(e.target.value)} className="sm:w-48">
+          <Select value={filterBranch} onChange={(e) => setFilterBranch(e.target.value)} className="w-full sm:w-48">
             <option value="all">All Branches</option>
             {branches?.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </Select>
@@ -196,19 +196,19 @@ export function InventoryPage() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50/50">
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3">Asset</th>
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3 hidden sm:table-cell">Type</th>
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3 hidden md:table-cell">Location</th>
-                    <th className="text-center text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3">Condition</th>
-                    <th className="text-center text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3">Status</th>
-                    <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3 hidden lg:table-cell">Qty</th>
-                    <th className="px-5 py-3"></th>
+                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5">Asset</th>
+                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5 hidden sm:table-cell">Type</th>
+                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5 hidden md:table-cell">Location</th>
+                    <th className="text-center text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5">Condition</th>
+                    <th className="text-center text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5">Status</th>
+                    <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5 hidden lg:table-cell">Qty</th>
+                    <th className="px-3 py-3 sm:px-5"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {filteredAssets.map((a) => (
                     <tr key={a.id} className="hover:bg-slate-50/50">
-                      <td className="px-5 py-3">
+                      <td className="px-3 py-3 sm:px-5">
                         <div className="flex items-center gap-2.5 min-w-0">
                           <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center shrink-0"><Wrench size={14} /></div>
                           <div className="min-w-0">
@@ -217,12 +217,12 @@ export function InventoryPage() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-5 py-3 hidden sm:table-cell"><Badge className="bg-slate-100 text-slate-600 border-slate-200 capitalize">{a.asset_type}</Badge></td>
-                      <td className="px-5 py-3 hidden md:table-cell text-sm text-slate-600 truncate max-w-[160px]">{a.branch?.name ?? a.location ?? '—'}</td>
-                      <td className="px-5 py-3 text-center"><Badge className={a.condition === 'damaged' || a.condition === 'poor' ? 'bg-rose-100 text-rose-700 border-rose-200' : a.condition === 'under_repair' ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200'}>{a.condition}</Badge></td>
-                      <td className="px-5 py-3 text-center"><Badge className={a.status === 'available' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : a.status === 'damaged' ? 'bg-rose-100 text-rose-700 border-rose-200' : 'bg-slate-100 text-slate-600 border-slate-200'}>{a.status}</Badge></td>
-                      <td className="px-5 py-3 hidden lg:table-cell text-right text-sm font-medium text-slate-900">{a.quantity} {a.unit}</td>
-                      <td className="px-5 py-3 text-right">
+                      <td className="px-3 py-3 sm:px-5 hidden sm:table-cell"><Badge className="bg-slate-100 text-slate-600 border-slate-200 capitalize">{a.asset_type}</Badge></td>
+                      <td className="px-3 py-3 sm:px-5 hidden md:table-cell text-sm text-slate-600 truncate max-w-[160px]">{a.branch?.name ?? a.location ?? '—'}</td>
+                      <td className="px-3 py-3 sm:px-5 text-center"><Badge className={a.condition === 'damaged' || a.condition === 'poor' ? 'bg-rose-100 text-rose-700 border-rose-200' : a.condition === 'under_repair' ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200'}>{a.condition}</Badge></td>
+                      <td className="px-3 py-3 sm:px-5 text-center"><Badge className={a.status === 'available' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : a.status === 'damaged' ? 'bg-rose-100 text-rose-700 border-rose-200' : 'bg-slate-100 text-slate-600 border-slate-200'}>{a.status}</Badge></td>
+                      <td className="px-3 py-3 sm:px-5 hidden lg:table-cell text-right text-sm font-medium text-slate-900">{a.quantity} {a.unit}</td>
+                      <td className="px-3 py-3 sm:px-5 text-right">
                         <div className="flex justify-end gap-1">
                           <button onClick={() => setViewAsset(a)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600" title="View history"><Eye size={14} /></button>
                           {canManage && <button onClick={() => { setEditingAsset(a); setShowAssetModal(true); }} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600" title="Edit asset"><Pencil size={14} /></button>}
@@ -234,7 +234,7 @@ export function InventoryPage() {
                 </tbody>
               </table>
             </div>
-            <div className="p-4 border-t border-slate-100 flex justify-between items-center text-sm text-slate-500">
+            <div className="p-4 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-1 text-sm text-slate-500 text-center sm:text-left">
               <span>Showing {filteredAssets.length} assets</span>
               <span>Page {page} of {Math.ceil(filteredAssets.length / pageSize)}</span>
             </div>
@@ -249,13 +249,13 @@ export function InventoryPage() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50/50">
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3">Product</th>
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3 hidden sm:table-cell">Branch</th>
-                    <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3">Opening</th>
-                    <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3">Current</th>
-                    <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3 hidden md:table-cell">Min</th>
-                    <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3 hidden md:table-cell">Reorder</th>
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3">Status</th>
+                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5">Product</th>
+                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5 hidden sm:table-cell">Branch</th>
+                    <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5">Opening</th>
+                    <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5">Current</th>
+                    <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5 hidden md:table-cell">Min</th>
+                    <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5 hidden md:table-cell">Reorder</th>
+                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
@@ -264,7 +264,7 @@ export function InventoryPage() {
                     const belowReorder = b.current_stock <= b.reorder_level && b.reorder_level > 0;
                     return (
                       <tr key={b.id} className="hover:bg-slate-50/50">
-                        <td className="px-5 py-3">
+                        <td className="px-3 py-3 sm:px-5">
                           <div className="flex items-center gap-2.5">
                             <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-400 flex items-center justify-center shrink-0">
                               <Package size={16} />
@@ -275,19 +275,19 @@ export function InventoryPage() {
                             </div>
                           </div>
                         </td>
-                        <td className="px-5 py-3 hidden sm:table-cell">
+                        <td className="px-3 py-3 sm:px-5 hidden sm:table-cell">
                           <span className="text-sm text-slate-600">{b.branch?.name}</span>
                         </td>
-                        <td className="px-5 py-3 text-right text-sm text-slate-600">{formatNumber(b.opening_stock)}</td>
-                        <td className="px-5 py-3 text-right">
+                        <td className="px-3 py-3 sm:px-5 text-right text-sm text-slate-600">{formatNumber(b.opening_stock)}</td>
+                        <td className="px-3 py-3 sm:px-5 text-right">
                           <span className={`text-sm font-semibold ${belowMin ? 'text-rose-600' : belowReorder ? 'text-amber-600' : 'text-slate-900'}`}>
                             {formatNumber(b.current_stock)}
                           </span>
                           <span className="text-xs text-slate-400 ml-1">{b.product?.unit}</span>
                         </td>
-                        <td className="px-5 py-3 text-right text-sm text-slate-400 hidden md:table-cell">{b.min_stock_level}</td>
-                        <td className="px-5 py-3 text-right text-sm text-slate-400 hidden md:table-cell">{b.reorder_level}</td>
-                        <td className="px-5 py-3">
+                        <td className="px-3 py-3 sm:px-5 text-right text-sm text-slate-400 hidden md:table-cell">{b.min_stock_level}</td>
+                        <td className="px-3 py-3 sm:px-5 text-right text-sm text-slate-400 hidden md:table-cell">{b.reorder_level}</td>
+                        <td className="px-3 py-3 sm:px-5">
                           {belowMin ? (
                             <Badge className="bg-rose-100 text-rose-700 border-rose-200"><AlertTriangle size={10} className="mr-1" />Below Min</Badge>
                           ) : belowReorder ? (
@@ -303,7 +303,7 @@ export function InventoryPage() {
               </table>
             </div>
             <div className="p-4 border-t border-slate-100">
-              <div className="flex justify-between items-center text-sm text-slate-500">
+              <div className="flex flex-col sm:flex-row justify-between items-center gap-1 text-sm text-slate-500 text-center sm:text-left">
                 <span>Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, filteredBalances.length)} of {filteredBalances.length} balances</span>
                 <span>Page {page} of {Math.ceil(filteredBalances.length / pageSize)}</span>
               </div>
@@ -332,13 +332,13 @@ export function InventoryPage() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50/50">
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3">Date</th>
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3">Product</th>
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3">Type</th>
-                    <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3">Qty</th>
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3 hidden sm:table-cell">Branch</th>
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3 hidden md:table-cell">Reason</th>
-                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3 hidden lg:table-cell">By</th>
+                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5">Date</th>
+                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5">Product</th>
+                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5">Type</th>
+                    <th className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5">Qty</th>
+                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5 hidden sm:table-cell">Branch</th>
+                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5 hidden md:table-cell">Reason</th>
+                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5 hidden lg:table-cell">By</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
@@ -346,23 +346,23 @@ export function InventoryPage() {
                     const sign = MOVEMENT_TYPE_SIGNS[t.movement_type as MovementType];
                     return (
                       <tr key={t.id} className="hover:bg-slate-50/50">
-                        <td className="px-5 py-3 text-xs text-slate-400 whitespace-nowrap">{formatDateTime(t.transaction_date)}</td>
-                        <td className="px-5 py-3">
+                        <td className="px-3 py-3 sm:px-5 text-xs text-slate-400 whitespace-nowrap">{formatDateTime(t.transaction_date)}</td>
+                        <td className="px-3 py-3 sm:px-5">
                           <p className="text-sm font-medium text-slate-900 truncate max-w-[160px]">{t.product?.name}</p>
                         </td>
-                        <td className="px-5 py-3">
+                        <td className="px-3 py-3 sm:px-5">
                           <Badge className={MOVEMENT_TYPE_STYLES[t.movement_type as MovementType]}>
                             {MOVEMENT_TYPE_LABELS[t.movement_type as MovementType]}
                           </Badge>
                         </td>
-                        <td className="px-5 py-3 text-right">
+                        <td className="px-3 py-3 sm:px-5 text-right">
                           <span className={`text-sm font-semibold ${sign > 0 ? 'text-emerald-600' : sign < 0 ? 'text-rose-600' : 'text-slate-700'}`}>
                             {sign > 0 ? '+' : sign < 0 ? '-' : ''}{formatNumber(t.quantity)}
                           </span>
                         </td>
-                        <td className="px-5 py-3 hidden sm:table-cell text-sm text-slate-600">{t.branch?.name}</td>
-                        <td className="px-5 py-3 hidden md:table-cell text-sm text-slate-500 max-w-[180px] truncate">{t.reason ?? '—'}</td>
-                        <td className="px-5 py-3 hidden lg:table-cell text-sm text-slate-400">{t.actor?.full_name ?? '—'}</td>
+                        <td className="px-3 py-3 sm:px-5 hidden sm:table-cell text-sm text-slate-600">{t.branch?.name}</td>
+                        <td className="px-3 py-3 sm:px-5 hidden md:table-cell text-sm text-slate-500 max-w-[180px] truncate">{t.reason ?? '—'}</td>
+                        <td className="px-3 py-3 sm:px-5 hidden lg:table-cell text-sm text-slate-400">{t.actor?.full_name ?? '—'}</td>
                       </tr>
                     );
                   })}
@@ -370,7 +370,7 @@ export function InventoryPage() {
               </table>
             </div>
             <div className="p-4 border-t border-slate-100">
-              <div className="flex justify-between items-center text-sm text-slate-500">
+              <div className="flex flex-col sm:flex-row justify-between items-center gap-1 text-sm text-slate-500 text-center sm:text-left">
                 <span>Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, filteredTxns.length)} of {filteredTxns.length} movements</span>
                 <span>Page {page} of {Math.ceil(filteredTxns.length / pageSize)}</span>
               </div>

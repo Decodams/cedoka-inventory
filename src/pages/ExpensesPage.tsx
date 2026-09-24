@@ -64,12 +64,12 @@ export function ExpensesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-slate-900">Operational Expenses</h2>
           <p className="text-sm text-slate-500 mt-0.5">Track logistics, repairs, petty cash, and other operational costs.</p>
         </div>
-        <Button onClick={()=>setShowModal(true)}><Plus size={18}/>Record Expense</Button>
+        <Button onClick={()=>setShowModal(true)} className="w-full sm:w-auto"><Plus size={18}/>Record Expense</Button>
       </div>
 
       <div className="grid grid-cols-2 gap-4">
@@ -171,7 +171,7 @@ function ExpenseModal({ branches, currentUser, onClose, onSaved }: { branches: B
           <option value="">Select...</option>
           {branches.map((b)=><option key={b.id} value={b.id}>{b.name}</option>)}
         </Select>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Select label="Category" value={category} onChange={(e)=>setCategory(e.target.value)}>
             {EXPENSE_CATEGORIES.map((c)=><option key={c} value={c}>{c.replace('_',' ').replace(/\b\w/g,l=>l.toUpperCase())}</option>)}
           </Select>

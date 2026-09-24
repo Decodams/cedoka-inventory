@@ -118,7 +118,7 @@ export function SaleDetailModal({ saleId, onClose }: { saleId: string; onClose: 
                 <tbody className="divide-y divide-slate-50">
                   {items.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="px-4 py-3 text-sm text-slate-400">
+                      <td colSpan={5} className="px-3 py-3 sm:px-4 text-sm text-slate-400">
                         {sale.product?.name || 'No line items recorded'}
                       </td>
                     </tr>

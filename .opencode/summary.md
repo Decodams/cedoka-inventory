@@ -1,183 +1,31 @@
 ﻿# Cedoka Inventory - Session Summary
 
-## Objective (user request)
-1. Category add/edit/delete for Super Admin + Admin
-2. Fix product save failing silently on Save
-3. Farm business: hide brand/SKU/model/supplier, farm-appropriate inputs only
-4. Farm units (bags, crates, baskets, kilos, units) in product add + sales
-5. Smooth, smart, easy Add Sale
-6. Admin + Manager stock transfers (verified already working)
-7. Regression: broken screens/buttons, login/register role+branch inputs
+## Objective
+Enhance Cedoka Global inventory/sales platform: RBAC/user management, self-registration, multi-item sales, per-business scoping, receipts, serialized inventory, General Assets extension, PWA installability, multi-business Admin oversight, and full mobile/desktop responsiveness — without rebuilding existing modules.
 
 ## Verified Ground Truth
 - Stack: React+TS + Vite + Tailwind; Supabase (auth/DB/edge functions); Vercel -> cedoka-inventory.vercel.app
-- Supabase project erxhhqrzxgsklyhsuulx; client in `src/hooks/useSupabaseQuery.ts`; types in `src/types/database.ts`; rbac in `src/lib/rbac.ts`
-- Writes gate on `role_permissions` codes (`products.manage`, `transfers.manage`): super_admin=all, admin=all-but-2, manager=has both, sales_person=view only
-- `units` table = ORG units (not measurement units); `products.unit` is free-text measurement unit
-- Businesses seeded: Farm (category Agriculture), Electronics Retail, Itel Energy, Ride/Logistics
-- `tsc --noEmit` and `npm run build` both exit 0 — verified end of session
-- `Read` harness unreliable for some paths; bash `Get-Content` is authoritative
+- Supabase project erxhhqrzxgsklyhsuulx; types `src/types/database.ts`; rbac `src/lib/rbac.ts`
+- Stock source of truth: `inventory_balances` + `inventory_transactions`; sales via RPC `create_sale_with_items`
+- `tsc --noEmit`, `eslint .`, `npm run build` all exit 0 (3 pre-existing warnings)
+- bash/PowerShell is authoritative for reading files; Read tool unreliable for some paths
+- Do NOT commit/push until user explicitly asks
 
-## Work State — COMPLETED (uncommitted)
-- LoginPage register: rendered missing Role/Business/Branch selects (state+validation existed, JSX was absent — registration could never succeed)
-- New `supabase/functions/manage-product` (create/update/delete, roles super_admin/admin/manager, manager delete blocked, farm server-side sanitization, sales-history -> deactivate instead of delete, audit log)
-- `supabase/functions/manage-category` (create/update/delete, roles super_admin/admin, business scoping, blocks delete when products use category, audit log)
-- New `src/lib/business.ts` (isFarmBusiness, FARM_UNITS, RETAIL_UNITS, formatUnitQuantity)
-- New `src/lib/edge.ts` (edgeErrorMessage unwraps real edge-fn error from FunctionsHttpError)
-- ProductsPage: Categories manager modal (list/add/rename/delete per business), farm-aware ProductFormModal (hides SKU/brand/model/supplier/warranty/type for Farm, unit datalist presets, real error messages, Delete for super_admin/admin)
-- SalesPage SaleModal rewritten: product search, clickable results with unit+price, qty stepper (decimal-safe for kilos), Enter-to-add, duplicate-line merge, unit display per line, auto amount-paid=total, balance/change indicator, single-branch auto-select, branch lock for non-admin
-- Stock transfers: verified `canManage=isAtLeast(manager)` + `transfers.manage` granted to super_admin/admin/manager — no change needed
-- App.tsx: all 20 routed pages verified wired (ReportTypesPage exists on disk but unrouted — pre-existing, untouched)
+## Work State - COMPLETED (this round, committed)
+- **user_unit_assignments RLS**: migration `202609170001_enable_unit_assignment_rls.sql` — table had a policy but relrowsecurity=false (inert); now ENABLE ROW LEVEL SECURITY + policy re-created; verified relrowsecurity=true on live DB; pushed
+- **Admin multi-business (item 1)**: already shipped in f904da1 (migration 202609160001 scoped businesses/branches/user_profiles to my_business_ids/assignments; ChipSelect UI in UserManagement)
+- **Add to Home Screen (item 2)**: already shipped in f904da1 (real PNG icons 192/512 any+maskable pixel-verified, SW registered, manifest in dist/index.html, vercel headers, InstallAppButton + iOS fallback)
+- **Full responsiveness pass**:
+  - InventoryPage: tabs/search/branch-filter stack full-width mobile; 3 tables (assets/balances/ledger) overflow-x-auto + progressive column hiding (hidden sm:/md:/lg:table-cell) + compact px-3 sm:px-5
+  - Page headers fixed to flex-col sm:flex-row + full-width mobile buttons: Expenses, Procurement, Transfers, Weekly Reports, Issues, Reconciliation, Activities, Business & Branches
+  - Modal form grids → grid-cols-1 sm:grid-cols-2: Expense, Transfer, GRN modals
+  - GRN item rows: overflow-x-auto wrapper + min-w-[420px]
+  - Audited every page: all 7 data tables have overflow wrappers; remaining grid-cols-2 are metric cards (correct); shared Modal/Button/Form already responsive (92vh, scrollable body, 44px touch targets)
 
-## Remaining (not implemented yet)
-- Item 4 multi-item sales schema (spec §22-23: sale header + sale_items) — SaleModal already writes multi-item via `create_sale_with_items` RPC
-- Item 5 units/other-entity CRUD + dedicated Roles page
-- Deploy new edge functions: `supabase functions deploy manage-product manage-category` + apply migrations if prod is behind
+## Files changed (this round, 15 modified + 1 new migration)
+- supabase/migrations/202609170001_enable_unit_assignment_rls.sql (NEW, pushed)
+- src/pages/: InventoryPage, ActivitiesPage, AuditLogPage, BusinessBranchPage, CustomersPage, ExpensesPage, IssuesPage, ProcurementPage, ProductsPage, ReconciliationPage, SalesPage, TransfersPage, UserManagementPage, WeeklyReportsPage
+- src/components/SaleDetailModal.tsx
 
 ## Next Move
-1. Deploy `manage-product` + `manage-category` edge functions to Supabase project
-2. Verify product save + category CRUD against live project
-3. Item 5 (Units/entity CRUD + Roles page) when requested
-4. Hold commits until explicitly asked
-
-## Relevant Files
-`src/pages/LoginPage.tsx`, `src/pages/ProductsPage.tsx`, `src/pages/SalesPage.tsx`, `src/lib/business.ts`, `src/lib/edge.ts`
-`supabase/functions/manage-product/index.ts`, `supabase/functions/manage-category/index.ts`, `supabase/functions/register-staff/index.ts`
-
-## Audit pass 2026-09-15 - all green
-- Fixed Delete-user dead button (confirm modal wired to handleDelete), removed dead handleEditRole, fixed 5 lint errors; eslint 0 errors, tsc 0, build 0.
-- Verified: 20 nav keys all routed, transfers RLS+UI cover admin/manager, role gates per matrix, register inputs restored.
-
-## Round 2 - 7 items (tsc 0, eslint 0, build 0)
-- Sidebar: overlay bg-slate-900 -> /50 + body scroll-lock when drawer open.
-- Sales picker: per-branch stock shown per row, over-stock blocked client-side with message.
-- New migration 202609150001: cumulative role permissions + seed farm_operations_officer.
-- New migration 202609150002: numeric quantities (fractional kilos) + balance-row backfill; RPC redefined.
-- EditUserModal: edge-first with direct-RLS fallback on Failed to send; branch assignments now persisted to user_branch_assignments (admin multi-branch).
-
-## Round 3 - roles/categories/units (tsc 0, eslint 0 errors, build 0)
-- New migration 202609150003: business_measurement_units table + RLS + per-business seeds.
-- New migration 202609150004: units anon select + manager scope visibility.
-- manage-category edge fn now allows manager (own business). Categories button visible to manager+.
-- Category manager modal has Measurement Units section (add/delete per business); product form unit presets come from it with static fallback.
-- Registration shows all roles except super_admin + org unit select; register-staff allows admin requests (pending approval) and stores unit assignment.
-- Edit member: unit/department multi-select (super_admin/admin) persisted to user_unit_assignments.
-
-## Round 4 - roles/suppliers/multi-unit/responsive (tsc 0, eslint 0 errors, build 0)
-- New migration 202609150005: roles write RLS (super_admin/admin; delete blocks locked roles) + product_units table + sale_items.unit + RPC stores line unit.
-- Roles manager modal in UserManagementPage (add/edit display, delete with in-use guard, locked badges).
-- Catalog modal: Suppliers section (add/deactivate per business).
-- Product save now edge-first (manage-product) with direct fallback + deploy guidance; multi-unit editor synced to product_units.
-- SaleModal: per-line unit selector from product units, unit persisted via RPC; responsive audit clean (tables scroll, headers wrap).
-
-## Round 5 - roles perms/units CRUD/RLS diagnostics (tsc 0, eslint 0 errors, build 0)
-- RolesManagerModal now shows permission badges per role (what each role can do).
-- New migration 202609150006: manager scope for org-units insert/update.
-- BusinessBranchPage: Units/Departments section (add/rename/deactivate per business); categories manager opened to managers.
-- Product save failures now run access diagnostics (session/profile/role/grant) with specific fix guidance.
-
-## DEPLOYED 2026-09-16: db push complete (all 30 migrations incl. 202609150001-06 applied); all 7 edge functions ACTIVE.
-
-## Round 6 - persistence/back/product-visibility/admin-org-CRUD (tsc 0, eslint 0, build 0)
-- App: current page persists across refresh (localStorage); header Back button with 20-step history.
-- ProductsPage onSaved clears product cache + resets to page 1.
-- New migration 202609150007: admin business insert/update.
-- BusinessBranchPage: admin business CRUD; business/branch Active toggles + Delete with guard (delete or deactivate fallback).
-
-## Round 7 - non-2xx root causes fixed + deployed (tsc 0, eslint 0, build 0)
-- manage-product update: stripped p_action/p_product_id leaking into DB patch (every product EDIT failed).
-- create-user-account: replaced role matrix (super_admin anything; admin anything-but-super_admin; manager junior+custom). UI lists aligned.
-- Re-added src/lib/edge.ts unwrapper; product/user saves now show real server messages.
-- New migration 202609150008 (roles.is_active) + role activate/deactivate + inactive filtered from pickers.
-- DEPLOYED from here: db push (150007+150008), functions deploy manage-product + create-user-account.
-
-## Round 8 - product visibility (tsc 0, eslint 0, build 0)
-- Live DB proof: 4 products (incl. user-tested Itel/Itel Solar), 2 users (admin + super_admin, 0 pending). Saves land; visibility was the bug.
-- ProductsPage: admin scope = own + assigned businesses via user_business_assignments; business filter shown to admins.
-
-## Round 9 - receipts (tsc 0, eslint 0 errors, build 0)
-- ReceiptPDF: NGN glyph fix (WinAnsi has no naira sign), Unit column on lines, scope-aware not-found message, fixed mangled contact separators.
-- SalesPage: receipt failures now surface a visible error instead of silent dead button.
-
-## Round 10 - invisible-data root cause FIXED + deployed
-- Root cause: migration 012 cleanup dropped 011 scoped SELECT policies without recreating most; tables had writes but no reads (silent empty lists).
-- New migration 202609150009 restores 12 scoped SELECTs (products, categories, suppliers, issues, purchase_requests, GRNs, transfers, balances, txns, periods, period lines, variances). Pushed + verified live via pg_policies.
-
-## Round 11 - login crash fixed (tsc 0, eslint 0, build 0)
-- CustomersPage failed to compile (duplicate filtered declaration, missing /> on CustomerModal, trailing garbage): vite login crash for everyone. Fixed; file now 350+ lines, clean.
-- CustomersPage is a full table (Name/Email/Phone/Branch/Business/Status + edit/activate/delete), matching UserManagement.
-
-## Round 12 - sale-to-receipt loop (tsc 0, eslint 0 errors, build 0)
-- ReceiptPDF refactored to shared builder + downloadReceipt + printReceipt (autoPrint to new tab).
-- SaleModal shows post-sale success panel (total/items/customer + Download PDF + Print + New Sale + Done); RPC sale id captured.
-- Sales table rows have Download + Print buttons; New Issue/New Report creation open to page roles.
-
-## Round 13 - customers/products/sales/branch-scope (tsc 0, eslint 0, build 0)
-- Customers simplified: name/phone/location only, business auto-filled, no branch linkage in UI.
-- Product delete now tries manage-product edge first (direct delete has no RLS policy and always failed).
-- Sales picker: out-of-stock rows blocked with message + hide toggle; one-tap quick-add; duplicate product names blocked at creation.
-- Branch dropdowns scoped: non-admin/manager see only own branch (sales) / own-business branches (transfers).
-
-## Round 14 - super-admin cascade deletes (tsc 0, eslint 0, build 0; deployed)
-- New migration 202609150010: inactive Default business+branch bucket. Pushed + verified live.
-- New edge fn delete-organization (super_admin only): business/branch/unit/product/role/user with history preserved under Default, staff accounts kept. Deployed.
-- UI: super_admin deletes route to engine (business/branch/unit/role/product); admin keeps deactivate fallback. delete-user extended (manager links, exception reporter). Redeployed.
-
-## Round 15 - simple product form, toggle, per-role dashboards (tsc 0, eslint 0, build 0)
-- ProductFormModal stripped to 10 fields (name, business, sku/brand/model non-farm, primary unit + also-sold-as, opening stock on create, description, cost, selling); technical fields preserved on update; opening stock seeds balances.
-- Products table: Active toggle (Power) for manager+ with feedback banners.
-- Dashboard: per-role blurb for all 10 roles; single universal profile card with Change Password for every role (was admin/manager/super_admin only).
-
-## Round 16 - receipts fixed + redesigned (tsc 0, eslint 0 errors, build 0)
-- Root cause of h.autoTable error: jspdf v4 + autotable v5 needs functional import; switched to autoTable(pdf, ...) API.
-- PDF redesigned: logo image, CEDOKA GLOBAL MALL, both addresses, attendant (salesperson), unit column, NGN-safe amounts.
-- Live HTML receipt preview in Record Sale (updates with cart) + post-sale Download/Print panel + table Print buttons.
-
-## Round 17 - sale details, hierarchy fix, exec dashboard, fixed sidebar (verified + deployed)
-- New SaleDetailModal (click any sale row as manager+): receipt no, date/time, status, customer, attendant+role, branch/business, item lines with units, totals, notes, Download/Print. Row buttons stop propagation.
-- SECURITY FIX in update-user-status (deployed): hierarchy rank check - admin can no longer approve/deactivate fellow admins or super_admins; frontend buttons gated by same rule.
-- Super admin dashboard: Products / Out of Stock / Pending Approvals / Roles Defined row + dynamic all-roles staff distribution.
-- Sidebar now fixed-position with lg:pl-64 content offset + overscroll containment (never scrolls with main).
-
-## Round 18 - receipt header polish (tsc 0, build 0)
-- Receipt name CEDOKA GLOBAL MALL -> CEDOKA MALL (PDF + HTML preview); added 09128817136, 09074190070 (two-line layout on PDF); logo/name gap widened.
-
-## Round 19 - serials, receipt identity, responsive fixes (verified + deployed)
-- New migration 202609150011: sale_items.serial_number + RPC persists it. Pushed live.
-- Sale lines carry optional serial (input, merge-aware, cart/preview/PDF/detail display).
-- Receipt identity: CEDOKA GLOBAL LIMITED, unnumbered addresses, attendant = first name (PDF + preview).
-- Responsive: variance button enlarged + labeled; stat grids collapse to 1 col on phones.
-
-## Round 20 - serialized inventory (verified + migration deployed)
-- New migration 202609150012 (pushed live, tables verified): products.serial_tracking_mode (default none), product_serial_numbers (UNIQUE per product, status lifecycle), sale_serial_numbers links; RLS (open read, manager+ write, links read-only via sale visibility).
-- RPC rewritten transactionally: unique serial lock via FOR UPDATE (concurrency-safe), qty==count, dup + whole-qty checks, shared group decrement, history preserved, audit logged.
-- Product form: mode selector (default none) + full serial manager (add/bulk/rename/delete/status/search/filter) + staged entry for new products + mode-change guard (client + edge fn).
-- Sales: per-mode picker UI (searchable unique checklist with n/N sync, shared group select, free text for none); receipts/details/preview show linked serials; global serial search in product list.
-
-## Fresh start applied (live)
-- Wiped all transactional/catalog data (products, sale items, sales, customers, categories, suppliers, measurement units, serials, inventory balances/transactions/periods, transfers, procurement, reports, issues, activities, expenses, audit log, dashboard plugins). Preserved: 4 businesses (incl. Default bucket), 6 branches, 4 users, roles/permissions, branch/unit assignments.
-- Verified live counts: products 0, sales 0, customers 0, categories 0, reports 0; businesses 4, branches 6, users 4. tsc 0, build 0.
-## Round 22 - multi-business admins + installable PWA (tsc 0, eslint 0 errors, build 0; migration pushed live)
-
-Item 1 - an Admin can now be added to as many businesses as desired and only sees those:
-- New migration 202609160001_multi_business_admin_scope.sql (PUSHED LIVE) - re-declares can_access_business/can_access_branch (assignment aware), adds my_business_ids()/my_branch_ids()/is_assigned_to_unit()/can_access_unit() SECURITY DEFINER helpers, and the missing read scoping:
-  * businesses: was `USING (true)` for every authenticated user -> now businesses.id IN (SELECT my_business_ids()). This was the root cause of an Admin seeing businesses they were never added to.
-  * branches: was `USING (true)` -> now branches.id IN (SELECT my_branch_ids()).
-  * user_profiles: any Admin could read every staff record group-wide -> now restricted to staff in the Admin's assigned businesses (Super Admin global, Manager same-branch).
-  * units / business_measurement_units / user_unit_assignments: were global for Admin -> now can_access_business scoped.
-  * can_view_user_records(): Admins were treated as global -> now bounded to their businesses.
-  * Backfilled primary business/branch into user_business_assignments/user_branch_assignments for existing Admins. Uses NOT EXISTS (not ON CONFLICT) - the live user_branch_assignments table still has the original surrogate `id` PK, which made 42P10 fail the first push attempt (rolled back cleanly, re-pushed).
-- rbac.ts: new accessibleBusinessIds()/accessibleBranchIds(); canAccessBusiness/canAccessBranch now assignment aware.
-- AuthContext.fetchUserProfile: hydrates business_assignment_ids + branch_assignment_ids (also folds in the primary business/branch) so every screen and picker knows the full oversight set.
-- UserManagementPage: EditUserModal + CreateUserModal now render a ChipSelect multi-select for "Businesses this Admin oversees" (branches filtered per selected business, cleared when a business is deselected); business assignment rows persist for Admins; role Scope form sends p_business_ids/p_branch_ids; "An Admin needs at least one business assignment" guard.
-- DashboardPage: businesses/branches are read row-scoped (no more `.limit(1)`); reports and issues use the Admin's full assigned business set.
-- New src/components/ui/ChipSelect.tsx (reusable toggle-chip multi-select).
-
-Item 2 - "Add to Home Screen" now installs the site as an app:
-- Root cause: main.tsx never registered the service worker (vite-plugin-pwa only injected a separate registerSW.js script), and the "icons" were actually 640x640 JPEGs declared as 192x192/512x512 image/png with purpose "any maskable". Chrome requires a registered SW plus manifest icons whose real size matches the declared size, so the install prompt never fired.
-- Generated real PNG icons with System.Drawing from logo.jpeg: icon-192x192.png, icon-512x512.png (purpose any), icon-maskable-192x192.png, icon-maskable-512x512.png (logo inset 12% so the Android mask does not crop it), apple-touch-icon.png (180), favicon-32x32.png.
-- vite.config.ts: injectRegister false + explicit registerSW() in main.tsx; id/display_override/orientation/lang/dir/categories; separate any vs maskable icon entries; workbox globPatterns + clientsClaim/skipWaiting/navigateFallback.
-- index.html: dropped the runtime data-URI favicon swap, added favicon + apple-touch-icon links plus apple-mobile-web-app-capable/-title/status-bar-style, mobile-web-app-capable, application-name, msapplication-TileColor.
-- New src/components/InstallAppButton.tsx: captures beforeinstallprompt (deferred so the app can show its own button), calls prompt()/userChoice, falls back to iOS Safari "Share > Add to Home Screen" instructions, hides itself once standalone or dismissed. Wired into the AppShell top bar.
-- vercel.json: no-cache + Service-Worker-Allowed:/ for sw.js, manifest Content-Type application/manifest+json.
-- Verified over `vite preview`: /, /manifest.webmanifest (application/manifest+json), /sw.js, and all 6 icons return 200; manifest parses and satisfies Chrome install criteria (name, short_name, start_url, display standalone, 192+512 "any" PNGs); sw.js precaches index.html and the maskable icon; main bundle imports workbox-window and contains the registration call.
+- Await user instruction for next feature/fix

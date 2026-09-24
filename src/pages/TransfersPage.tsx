@@ -91,12 +91,12 @@ export function TransfersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-slate-900">Stock Transfers</h2>
           <p className="text-sm text-slate-500 mt-0.5">Branch-to-branch workflow — Request → Review → Approve → Dispatch (stock out) → In Transit → Receive (stock in) → Complete</p>
         </div>
-        {canManage && <Button onClick={() => setShowModal(true)}><Plus size={18} /> New Transfer</Button>}
+        {canManage && <Button onClick={() => setShowModal(true)} className="w-full sm:w-auto"><Plus size={18} /> New Transfer</Button>}
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3">
@@ -162,7 +162,7 @@ export function TransfersPage() {
             </div>
           ))}
           <div className="p-4 border-t border-slate-100">
-            <div className="flex justify-between items-center text-sm text-slate-500">
+            <div className="flex flex-col sm:flex-row justify-between items-center gap-1 text-sm text-slate-500 text-center sm:text-left">
               <span>Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, filtered.length)} of {filtered.length} transfers</span>
               <span>Page {page} of {Math.ceil(filtered.length / pageSize)}</span>
             </div>
@@ -297,7 +297,7 @@ function TransferModal({
   return (
     <Modal open onClose={onClose} title="New Stock Transfer" size="lg">
       <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Select label="From Branch" value={fromBranchId} onChange={(e) => handleFromChange(e.target.value)} disabled={isManager}>
             <option value="">Select source...</option>
             {visibleBranches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}

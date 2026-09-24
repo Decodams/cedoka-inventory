@@ -59,12 +59,12 @@ export function ReconciliationPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-slate-900">Stock Reconciliation</h2>
           <p className="text-sm text-slate-500 mt-0.5">Weekly product-level reconciliation · Expected vs physical count · Variance tracking</p>
         </div>
-        {canManage && <Button onClick={() => setShowPeriodModal(true)}><Plus size={18} /> New Period</Button>}
+        {canManage && <Button onClick={() => setShowPeriodModal(true)} className="w-full sm:w-auto"><Plus size={18} /> New Period</Button>}
       </div>
 
       <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">
@@ -305,7 +305,7 @@ function PeriodDetailView({ period, onBack, onRefresh }: { period: InventoryPeri
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50/50 text-xs text-slate-500">
-                <th className="text-left px-4 py-3">Product</th>
+                <th className="text-left px-3 py-3 sm:px-4">Product</th>
                 <th className="text-right px-2 py-3">Opening</th>
                 <th className="text-right px-2 py-3">Received</th>
                 <th className="text-right px-2 py-3">In (Tfr)</th>

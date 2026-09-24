@@ -131,7 +131,7 @@ export function BusinessBranchPage() {
           <button onClick={() => setActionError(null)} className="text-rose-400 hover:text-rose-600 text-sm font-medium shrink-0">Dismiss</button>
         </div>
       )}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-slate-900">Businesses & Branches</h2>
           <p className="text-sm text-slate-500 mt-0.5">

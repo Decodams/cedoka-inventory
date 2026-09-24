@@ -76,21 +76,21 @@ export function AuditLogPage() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50/50">
-                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3">When</th>
-                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3">User</th>
-                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3">Action</th>
-                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-5 py-3 hidden sm:table-cell">Target</th>
+                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5">When</th>
+                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5">User</th>
+                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5">Action</th>
+                  <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5 hidden sm:table-cell">Target</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {filtered.map((log) => (
                   <tr key={log.id} className="hover:bg-slate-50/50">
-                    <td className="px-5 py-3 text-xs text-slate-400 whitespace-nowrap">{formatDateTime(log.created_at)}</td>
-                    <td className="px-5 py-3 text-sm text-slate-700">{log.actor?.full_name ?? 'System'}</td>
-                    <td className="px-5 py-3">
+                    <td className="px-3 py-3 sm:px-5 text-xs text-slate-400 whitespace-nowrap">{formatDateTime(log.created_at)}</td>
+                    <td className="px-3 py-3 sm:px-5 text-sm text-slate-700">{log.actor?.full_name ?? 'System'}</td>
+                    <td className="px-3 py-3 sm:px-5">
                       <Badge className="bg-slate-100 text-slate-600 border-slate-200">{log.action}</Badge>
                     </td>
-                    <td className="px-5 py-3 hidden sm:table-cell text-sm text-slate-400">
+                    <td className="px-3 py-3 sm:px-5 hidden sm:table-cell text-sm text-slate-400">
                       {log.target_table}
                       {log.target_id && ` · ${log.target_id.slice(0, 8)}`}
                     </td>
