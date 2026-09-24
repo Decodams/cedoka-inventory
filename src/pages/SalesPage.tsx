@@ -299,6 +299,18 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
   const complete = async () => {
     if (!branchId) { setError('Select a branch first.'); return; }
     if (!items.length) { setError('Add at least one item to the sale.'); return; }
+    // Ensure the sale customer appears in the Customers list.
+    const saleCustomer = customerName.trim();
+    if (saleCustomer && saleCustomer.toLowerCase() !== 'walk-in') {
+      const branch = branches.find((candidate) => candidate.id === branchId);
+      const bizId = branch?.business_id ?? null;
+      if (bizId) {
+        const { data: existingCustomer } = await supabase.from('customers').select('id').eq('business_id', bizId).ilike('name', saleCustomer).limit(1).maybeSingle();
+        if (!existingCustomer) {
+          await supabase.from('customers').insert({ business_id: bizId, branch_id: branchId, name: saleCustomer, phone: null, address: null, email: null, is_active: true });
+        }
+      }
+    }
     setSaving(true);
     setError(null);
     const { data: saleId, error: rpcError } = await supabase.rpc('create_sale_with_items', {

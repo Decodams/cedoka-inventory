@@ -153,3 +153,7 @@
 - RPC rewritten transactionally: unique serial lock via FOR UPDATE (concurrency-safe), qty==count, dup + whole-qty checks, shared group decrement, history preserved, audit logged.
 - Product form: mode selector (default none) + full serial manager (add/bulk/rename/delete/status/search/filter) + staged entry for new products + mode-change guard (client + edge fn).
 - Sales: per-mode picker UI (searchable unique checklist with n/N sync, shared group select, free text for none); receipts/details/preview show linked serials; global serial search in product list.
+
+## Fresh start applied (live)
+- Wiped all transactional/catalog data (products, sale items, sales, customers, categories, suppliers, measurement units, serials, inventory balances/transactions/periods, transfers, procurement, reports, issues, activities, expenses, audit log, dashboard plugins). Preserved: 4 businesses (incl. Default bucket), 6 branches, 4 users, roles/permissions, branch/unit assignments.
+- Verified live counts: products 0, sales 0, customers 0, categories 0, reports 0; businesses 4, branches 6, users 4. tsc 0, build 0.

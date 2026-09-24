@@ -49,29 +49,13 @@ function loadSavedPage(): PageKey {
 function AppContent() {
   const { user, loading } = useAuth();
   const [currentPage, setCurrentPage] = useState<PageKey>(loadSavedPage);
-  const [pageHistory, setPageHistory] = useState<PageKey[]>([]);
 
   const goToPage = (page: PageKey) => {
-    if (page !== currentPage) {
-      setPageHistory((h) => [...h.slice(-19), currentPage]);
-    }
     setCurrentPage(page);
     try {
       window.localStorage.setItem(PAGE_STORAGE_KEY, page);
     } catch {
       // storage unavailable — page simply won't persist
-    }
-  };
-
-  const goBack = () => {
-    const prev = pageHistory[pageHistory.length - 1];
-    if (!prev) return;
-    setPageHistory((h) => h.slice(0, -1));
-    setCurrentPage(prev);
-    try {
-      window.localStorage.setItem(PAGE_STORAGE_KEY, prev);
-    } catch {
-      // ignore
     }
   };
 
@@ -139,7 +123,7 @@ function AppContent() {
   };
 
   return (
-    <AppShell currentPage={currentPage} onPageChange={goToPage} onBack={goBack} canGoBack={pageHistory.length > 0}>
+    <AppShell currentPage={currentPage} onPageChange={goToPage}>
       <Suspense fallback={<div className="p-8 flex justify-center"><LoadingState message="Loading page..." /></div>}>
         {renderPage()}
       </Suspense>

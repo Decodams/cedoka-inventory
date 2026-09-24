@@ -270,10 +270,21 @@ function EditUserModal({
     return orgUnits.filter((u) => u.business_id === businessId && (branchIds.length === 0 || !u.branch_id || branchIds.includes(u.branch_id)));
   }, [orgUnits, businessId, branchIds]);
 
+  const myBusinessIds = useMemo(() => {
+    if (hasRole(currentUser, 'super_admin')) return businesses.map((b) => b.id);
+    const ids = new Set<string>();
+    if (currentUser?.business_id) ids.add(currentUser.business_id);
+    // Include assigned businesses for multi-business admins
+    const assignments = (currentUser as unknown as { business_assignments?: Array<{ business_id: string }> })?.business_assignments;
+    if (Array.isArray(assignments)) for (const a of assignments) if (a.business_id) ids.add(a.business_id);
+    return [...ids];
+  }, [businesses, currentUser]);
+
   const availableBusinesses = useMemo(() => {
     if (hasRole(currentUser, 'super_admin')) return businesses;
-    return businesses.filter((b) => b.id === currentUser?.business_id);
-  }, [businesses, currentUser]);
+    if (myBusinessIds.length === 0) return [];
+    return businesses.filter((b) => myBusinessIds.includes(b.id));
+  }, [businesses, myBusinessIds]);
 
   const needsBusiness = true;
   const needsBranch = true;
@@ -420,10 +431,20 @@ function CreateUserModal({
     return [];
   }, [branches, businessId, currentUser]);
 
+  const myBusinessIdsCreate = useMemo(() => {
+    if (hasRole(currentUser, 'super_admin')) return businesses.map((b) => b.id);
+    const ids = new Set<string>();
+    if (currentUser?.business_id) ids.add(currentUser.business_id);
+    const assignments = (currentUser as unknown as { business_assignments?: Array<{ business_id: string }> })?.business_assignments;
+    if (Array.isArray(assignments)) for (const a of assignments) if (a.business_id) ids.add(a.business_id);
+    return [...ids];
+  }, [businesses, currentUser]);
+
   const availableBusinesses = useMemo(() => {
     if (hasRole(currentUser, 'super_admin')) return businesses;
-    return businesses.filter((b) => b.id === currentUser?.business_id);
-  }, [businesses, currentUser]);
+    if (myBusinessIdsCreate.length === 0) return [];
+    return businesses.filter((b) => myBusinessIdsCreate.includes(b.id));
+  }, [businesses, myBusinessIdsCreate]);
 
   const selectedRole = roles.find((r) => r.id === roleId);
   const needsBusiness = selectedRole && selectedRole.name !== 'super_admin';

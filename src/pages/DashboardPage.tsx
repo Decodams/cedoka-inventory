@@ -37,25 +37,25 @@ function roleDashboardBlurb(role: string | undefined, businessName?: string | nu
     case 'super_admin':
       return 'Group overview';
     case 'admin':
-      return `Business overview â€” ${businessName ?? 'all assigned businesses'}`;
+      return `Business overview - ${businessName ?? 'all assigned businesses'}`;
     case 'manager':
-      return `Branch operations â€” ${branchName ?? 'your branch'}`;
+      return `Branch operations - ${branchName ?? 'your branch'}`;
     case 'supervisor':
-      return `Team oversight â€” ${branchName ?? 'your branch'}`;
+      return `Team oversight - ${branchName ?? 'your branch'}`;
     case 'sales_person':
       return 'Your sales dashboard';
     case 'accountant':
-      return `Financial reconciliation â€” ${businessName ?? 'your business'}`;
+      return `Financial reconciliation - ${businessName ?? 'your business'}`;
     case 'inventory_officer':
-      return `Stock accuracy â€” ${branchName ?? 'your branch'}`;
+      return `Stock accuracy - ${branchName ?? 'your branch'}`;
     case 'transport_officer':
       return 'Fleet and logistics activity';
     case 'auditor':
       return 'Read-only oversight';
     case 'farm_operations_officer':
-      return `Farm operations â€” ${branchName ?? 'your branch'}`;
+      return `Farm operations - ${branchName ?? 'your branch'}`;
     default:
-      return branchName ? `Branch overview â€” ${branchName}` : 'Your workspace overview';
+      return branchName ? `Branch overview - ${branchName}` : 'Your workspace overview';
   }
 }
 
@@ -171,21 +171,43 @@ export function DashboardPage() {
   const myPendingSales = mySales.filter((s) => s.status === 'pending').reduce((sum, s) => sum + Number(s.unit_price) * s.quantity - Number(s.discount_value), 0);
   const myTotalUnitsSold = mySales.filter((s) => s.status === 'completed').reduce((sum, s) => sum + s.quantity, 0);
 
+  // Global best sellers (sale_items) for management roles
+  const { data: topSaleItems } = useSupabaseQuery<Array<{ product_id: string; quantity: number }>>(
+    isSuperAdmin || isAdmin ? () => supabase.from('sale_items').select('product_id,quantity').limit(500) : null,
+    [isSuperAdmin, isAdmin],
+    { cacheKey: isSuperAdmin || isAdmin ? `dash:topitems:${user?.id ?? 'anon'}` : undefined, ttlMs: 60_000 },
+  );
+
   const bestSellingProducts = useMemo(() => {
-    if (!isSalesPerson || !products) return [];
-    const productSales: Record<string, { name: string; qty: number; revenue: number }> = {};
-    mySales.forEach((s) => {
-      const pid = s.product_id ?? 'unknown';
-      const p = products.find((pr) => pr.id === pid);
-      if (!productSales[pid]) productSales[pid] = { name: p?.name ?? 'Unknown', qty: 0, revenue: 0 };
-      productSales[pid].qty += s.quantity;
-      productSales[pid].revenue += Number(s.unit_price) * s.quantity - Number(s.discount_value);
-    });
-    return Object.entries(productSales)
-      .map(([id, data]) => ({ id, ...data }))
-      .sort((a, b) => b.qty - a.qty)
-      .slice(0, 5);
-  }, [isSalesPerson, mySales, products]);
+    // Salesperson: personal best sellers
+    if (isSalesPerson && products) {
+      const productSales: Record<string, { name: string; qty: number; revenue: number }> = {};
+      mySales.forEach((s) => {
+        const pid = s.product_id ?? 'unknown';
+        const p = products.find((pr) => pr.id === pid);
+        if (!productSales[pid]) productSales[pid] = { name: p?.name ?? 'Unknown', qty: 0, revenue: 0 };
+        productSales[pid].qty += s.quantity;
+        productSales[pid].revenue += Number(s.unit_price) * s.quantity - Number(s.discount_value);
+      });
+      return Object.entries(productSales)
+        .map(([id, data]) => ({ id, ...data }))
+        .sort((a, b) => b.qty - a.qty)
+        .slice(0, 5);
+    }
+    // Management: global best sellers from sale_items
+    if ((isSuperAdmin || isAdmin) && topSaleItems && allProducts) {
+      const totals: Record<string, number> = {};
+      for (const row of topSaleItems) totals[row.product_id] = (totals[row.product_id] ?? 0) + Number(row.quantity);
+      return Object.entries(totals)
+        .map(([id, qty]) => {
+          const p = allProducts.find((pr) => pr.id === id);
+          return { id, name: p?.name ?? 'Product', qty, revenue: 0 };
+        })
+        .sort((a, b) => b.qty - a.qty)
+        .slice(0, 5);
+    }
+    return [];
+  }, [isSalesPerson, isSuperAdmin, isAdmin, mySales, products, topSaleItems, allProducts]);
 
   const weeklyChartData = useMemo(() => {
     if (!isSalesPerson) {
@@ -296,7 +318,7 @@ export function DashboardPage() {
         )}
         {isAdmin && !isSuperAdmin && (
           <>
-            <MetricCard icon={<Building2 size={20} />} label="Business" value={user?.business?.name ?? 'â€”'} subtitle="Active unit" color="slate" />
+            <MetricCard icon={<Building2 size={20} />} label="Business" value={user?.business?.name ?? "-"} subtitle="Active unit" color="slate" />
             <MetricCard icon={<MapPin size={20} />} label="Branches" value={totalBranches.toString()} subtitle="Under management" color="blue" />
             <MetricCard icon={<Users size={20} />} label="Staff" value={totalStaff.toString()} subtitle="Team members" color="emerald" />
             <MetricCard icon={<DollarSign size={20} />} label="Total Sales" value={formatCurrency(totalSalesValue)} subtitle="This week" color="emerald" />
@@ -307,7 +329,7 @@ export function DashboardPage() {
             <MetricCard icon={<Receipt size={20} />} label="My Sales" value={formatCurrency(myTotalSales)} subtitle="Completed" color="emerald" />
             <MetricCard icon={<Clock size={20} />} label="Pending" value={formatCurrency(myPendingSales)} subtitle="Awaiting payment" color="amber" />
             <MetricCard icon={<ShoppingBag size={20} />} label="Units Sold" value={myTotalUnitsSold.toString()} subtitle="This period" color="blue" />
-            <MetricCard icon={<Target size={20} />} label="Best Seller" value={bestSellingProducts[0]?.name?.slice(0, 12) ?? 'â€”'} subtitle="Top product" color="slate" />
+            <MetricCard icon={<Target size={20} />} label="Best Seller" value={bestSellingProducts[0]?.name?.slice(0, 18) ?? "-"} subtitle="Top product" color="slate" />
           </>
         )}
         {!isSuperAdmin && !isAdmin && !isSalesPerson && (
@@ -326,6 +348,16 @@ export function DashboardPage() {
           <MetricCard icon={<AlertTriangle size={20} />} label="Out of Stock" value={String(emptyShelves?.length ?? 0)} subtitle="Empty shelves" color="rose" />
           <MetricCard icon={<Clock size={20} />} label="Pending Approvals" value={String(pendingUsers?.length ?? 0)} subtitle="Awaiting review" color="amber" />
           <MetricCard icon={<Users size={20} />} label="Roles Defined" value={String(roles?.length ?? 0)} subtitle="System roles" color="slate" />
+        </div>
+      )}
+      {(isSuperAdmin || isAdmin) && bestSellingProducts.length > 0 && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-5 flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wider flex items-center gap-2"><Target size={14} /> Best Selling Item</p>
+            <p className="text-lg font-bold text-slate-900 mt-1 truncate">{bestSellingProducts[0].name} - {bestSellingProducts[0].qty} units sold</p>
+            <p className="text-xs text-slate-500 mt-1">Top performer across all sales</p>
+          </div>
+          <div className="hidden sm:flex w-12 h-12 rounded-xl bg-white border border-emerald-200 items-center justify-center shrink-0"><Target size={20} className="text-emerald-600" /></div>
         </div>
       )}
 
@@ -551,3 +583,5 @@ function StatusItem({ icon, label, value, color }: { icon: React.ReactNode; labe
     </div>
   );
 }
+
+

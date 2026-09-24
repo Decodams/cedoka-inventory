@@ -1,4 +1,4 @@
-import { type ReactNode } from 'react';
+import { type ReactNode, useEffect } from 'react';
 import { X } from 'lucide-react';
 
 interface ModalProps {
@@ -17,12 +17,28 @@ const sizeClasses = {
 };
 
 export function Modal({ open, onClose, title, children, size = 'md' }: ModalProps) {
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open, onClose]);
+
   if (!open) return null;
+
+  const handleBackdropClick = () => onClose();
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4">
       <div
-        className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm pointer-events-none"
+        className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
+        onClick={handleBackdropClick}
+        aria-hidden="true"
       />
       <div
         className={`relative bg-white rounded-2xl shadow-2xl w-full ${sizeClasses[size]} max-h-[92vh] sm:max-h-[90vh] flex flex-col overflow-hidden`}
