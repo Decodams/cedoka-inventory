@@ -20,6 +20,7 @@ type ProductFields = {
   min_stock_level?: number;
   reorder_level?: number;
   product_type?: string;
+  serial_tracking_mode?: string;
   warranty_months?: number | null;
   expiry_tracking?: boolean;
   is_active?: boolean;
@@ -129,6 +130,7 @@ Deno.serve(async (request) => {
       min_stock_level: fields.min_stock_level ?? 0,
       reorder_level: fields.reorder_level ?? 0,
       product_type: fields.product_type ?? 'simple',
+      serial_tracking_mode: ['none', 'unique', 'shared'].includes(fields.serial_tracking_mode ?? '') ? fields.serial_tracking_mode : 'none',
       warranty_months: fields.warranty_months ?? null,
       expiry_tracking: fields.expiry_tracking ?? false,
       is_active: fields.is_active ?? true,
@@ -160,6 +162,22 @@ Deno.serve(async (request) => {
   for (const [key, value] of Object.entries(fields)) {
     if (key === 'business_id' || key === 'p_action' || key === 'p_product_id') continue;
     if (value !== undefined) patch[key] = value;
+  }
+  if (typeof patch['serial_tracking_mode'] === 'string' && !['none', 'unique', 'shared'].includes(patch['serial_tracking_mode'] as string)) {
+    return reply({ error: 'Invalid serial tracking mode' }, 400);
+  }
+  // History protection: a mode with non-available serials cannot be switched
+  // off or converted — sold/returned records must stay intact.
+  if (typeof patch['serial_tracking_mode'] === 'string') {
+    const { data: current } = await admin.from('products').select('serial_tracking_mode').eq('id', p_product_id).maybeSingle();
+    const currentMode = (current as { serial_tracking_mode?: string } | null)?.serial_tracking_mode ?? 'none';
+    if (currentMode !== 'none' && patch['serial_tracking_mode'] !== currentMode) {
+      const { data: historic } = await admin.from('product_serial_numbers').select('id')
+        .eq('product_id', p_product_id).neq('status', 'available').limit(1);
+      if (historic && historic.length > 0) {
+        return reply({ error: 'This product has sold or adjusted serials, so its tracking mode cannot be changed' }, 400);
+      }
+    }
   }
   if (Object.keys(patch).length === 0) return reply({ error: 'Nothing to update' }, 400);
   const { error: updateError } = await admin.from('products').update(patch).eq('id', p_product_id);

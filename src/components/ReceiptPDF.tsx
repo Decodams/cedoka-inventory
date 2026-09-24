@@ -58,7 +58,7 @@ async function loadLogoDataUrl(): Promise<string | null> {
 }
 
 async function buildReceiptPdf(saleId: string): Promise<{ pdf: jsPDF; receiptNo: string }> {
-  const { data, error } = await supabase.from('daily_sales').select('*, product:products(id,name), items:sale_items(quantity,unit,serial_number,unit_price,discount_value,product:products(name)), branch:branches(name), business:businesses(name), salesperson:user_profiles!daily_sales_salesperson_id_fkey(full_name)').eq('id', saleId).single();
+  const { data, error } = await supabase.from('daily_sales').select('*, product:products(id,name), items:sale_items(quantity,unit,serial_number,unit_price,discount_value,product:products(name)), serial_links:sale_serial_numbers(serial_number), branch:branches(name), business:businesses(name), salesperson:user_profiles!daily_sales_salesperson_id_fkey(full_name)').eq('id', saleId).single();
   if (error || !data) throw new Error('Sale not found. It may be outside your assigned scope.');
   const sale = data as unknown as ReceiptSale;
   const legacyItem: ReceiptItem = { product: sale.product ?? null, quantity: 1, unit: null, unit_price: 0, discount_value: 0 };
@@ -149,6 +149,15 @@ async function buildReceiptPdf(saleId: string): Promise<{ pdf: jsPDF; receiptNo:
   y += 5;
   pdf.text(`Balance: ${pdfMoney(balance)}`, margin, y);
   y += 8;
+  const linkedSerials = ((sale as unknown as { serial_links?: Array<{ serial_number: string }> }).serial_links ?? [])
+    .map((l) => l.serial_number)
+    .filter(Boolean);
+  if (linkedSerials.length > 0) {
+    pdf.setFontSize(8);
+    const serialLines = pdf.splitTextToSize(`Serials: ${linkedSerials.join(', ')}`, width - margin * 2);
+    pdf.text(serialLines, margin, y);
+    y += serialLines.length * 4;
+  }
   if (sale.notes) {
     pdf.setFontSize(8);
     pdf.text(`Notes: ${sale.notes}`, margin, y);

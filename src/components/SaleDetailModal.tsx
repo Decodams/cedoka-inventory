@@ -14,6 +14,7 @@ type SaleDetail = DailySale & {
   payment_method?: string | null;
   business?: { name: string } | null;
   salesperson?: { full_name: string; email?: string | null; role?: { display_name: string } | null } | null;
+  serial_links?: Array<{ sale_item_id: string | null; serial_number: string }> | null;
 };
 
 export function SaleDetailModal({ saleId, onClose }: { saleId: string; onClose: () => void }) {
@@ -24,7 +25,7 @@ export function SaleDetailModal({ saleId, onClose }: { saleId: string; onClose: 
   const { data: sale, loading, error, refetch } = useSupabaseQuery<SaleDetail>(
     () => supabase
       .from('daily_sales')
-      .select('*, product:products(id,name), items:sale_items(id,quantity,unit,serial_number,unit_price,discount_value,product:products(id,name)), branch:branches(id,name), business:businesses(id,name), salesperson:user_profiles!daily_sales_salesperson_id_fkey(full_name,email,role:roles(display_name))')
+      .select('*, product:products(id,name), items:sale_items(id,quantity,unit,serial_number,unit_price,discount_value,product:products(id,name)), serial_links:sale_serial_numbers(sale_item_id,serial_number), branch:branches(id,name), business:businesses(id,name), salesperson:user_profiles!daily_sales_salesperson_id_fkey(full_name,email,role:roles(display_name))')
       .eq('id', saleId)
       .maybeSingle(),
     [saleId],
@@ -44,6 +45,8 @@ export function SaleDetailModal({ saleId, onClose }: { saleId: string; onClose: 
   };
 
   const items = sale?.items ?? [];
+  const serialsForItem = (saleItemId: string): string[] =>
+    (sale?.serial_links ?? []).filter((l) => l.sale_item_id === saleItemId).map((l) => l.serial_number);
   const total = items.reduce(
     (sum, item) => sum + Number(item.quantity) * Number(item.unit_price) - Number(item.discount_value || 0),
     0,
@@ -125,6 +128,11 @@ export function SaleDetailModal({ saleId, onClose }: { saleId: string; onClose: 
                       <td className="px-4 py-2.5 font-medium text-slate-800">
                         {item.product?.name || 'Item'}
                         {item.serial_number && <span className="block text-[11px] font-normal text-slate-400">SN: {item.serial_number}</span>}
+                        {serialsForItem(item.id).length > 0 && (
+                          <span className="block text-[11px] font-normal text-slate-400">
+                            Serials: {serialsForItem(item.id).join(', ')}
+                          </span>
+                        )}
                       </td>
                       <td className="px-3 py-2.5 text-right">{item.quantity}</td>
                       <td className="px-3 py-2.5 text-slate-500">{item.unit || '-'}</td>

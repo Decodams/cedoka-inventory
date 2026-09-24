@@ -11,7 +11,8 @@ import { formatCurrency } from '@/lib/dateUtils';
 import { isAtLeast, hasRole } from '@/lib/rbac';
 import { isFarmBusiness, unitOptionsFor } from '@/lib/business';
 import { edgeErrorMessage } from '@/lib/edge';
-import type { Product, Business, BusinessMeasurementUnit, Category, Supplier, UserProfile } from '@/types/database';
+import { logAudit } from '@/lib/audit';
+import type { Product, Business, BusinessMeasurementUnit, Category, ProductSerialNumber, SerialTrackingMode, Supplier, UserProfile } from '@/types/database';
 
 export function ProductsPage() {
   const { user } = useAuth();
@@ -108,17 +109,46 @@ export function ProductsPage() {
     { cacheKey: `products:${user?.id ?? 'anon'}:${user?.business_id ?? '-'}:${filterBusiness}:${(accessibleBusinessIds ?? []).join(',')}` },
   );
 
+  // Global serial search: find products by serial number across the catalog.
+  const serialNeedle = search.trim();
+  const { data: serialMatches } = useSupabaseQuery<Array<{ product: Product | null }>>(
+    serialNeedle
+      ? () => supabase
+          .from('product_serial_numbers')
+          .select('product:products(*)')
+          .ilike('serial_number', `%${serialNeedle.replace(/[%_]/g, '')}%`)
+          .limit(20)
+      : null,
+    [search],
+    { cacheKey: serialNeedle ? `serial-search:${serialNeedle.toLowerCase()}` : undefined, ttlMs: 30_000 },
+  );
+
+  const serialMatchedIds = useMemo(
+    () => new Set((serialMatches ?? []).map((r) => r.product?.id).filter((id): id is string => !!id)),
+    [serialMatches],
+  );
+
   const filtered = useMemo(() => {
-    if (!products) return [];
-    if (!search) return products;
-    const q = search.toLowerCase();
-    return products.filter(
-      (p) =>
-        p.name.toLowerCase().includes(q) ||
-        (p.sku?.toLowerCase().includes(q) ?? false) ||
-        (p.brand?.toLowerCase().includes(q) ?? false),
-    );
-  }, [products, search]);
+    const base = !products ? [] : !search ? products : (() => {
+      const q = search.toLowerCase();
+      return products.filter(
+        (p) =>
+          p.name.toLowerCase().includes(q) ||
+          (p.sku?.toLowerCase().includes(q) ?? false) ||
+          (p.brand?.toLowerCase().includes(q) ?? false),
+      );
+    })();
+    if (!serialNeedle) return base;
+    const extras = (serialMatches ?? [])
+      .map((r) => r.product)
+      .filter((p): p is Product => !!p && !base.some((b) => b.id === p.id))
+      .filter((p) => {
+        if (isExecutive) return true;
+        if (isAdmin) return !accessibleBusinessIds || accessibleBusinessIds.length === 0 || accessibleBusinessIds.includes(p.business_id);
+        return !user?.business_id || p.business_id === user.business_id;
+      });
+    return [...base, ...extras];
+  }, [products, search, serialMatches, serialNeedle, isExecutive, isAdmin, accessibleBusinessIds, user?.business_id]);
 
   const toggleProductActive = async (p: Product) => {
     setNotice(null);
@@ -207,6 +237,7 @@ export function ProductsPage() {
                           <div className="min-w-0">
                             <p className="text-sm font-medium text-slate-900 truncate">{p.name}</p>
                             {p.sku && <p className="text-xs text-slate-400 truncate">SKU: {p.sku}</p>}
+                            {serialMatchedIds.has(p.id) && <p className="text-[11px] font-medium text-blue-600 truncate">Serial match: {search.trim()}</p>}
                           </div>
                         </div>
                       </td>
@@ -581,6 +612,119 @@ function ProductFormModal({
       }
     });
   }, [product]);
+  const [serialMode, setSerialMode] = useState<SerialTrackingMode>(product?.serial_tracking_mode ?? 'none');
+  const [serials, setSerials] = useState<ProductSerialNumber[]>([]);
+  const [serialSearch, setSerialSearch] = useState('');
+  const [serialStatusFilter, setSerialStatusFilter] = useState('all');
+  const [bulkText, setBulkText] = useState('');
+  const [sharedSerial, setSharedSerial] = useState('');
+  const [sharedQty, setSharedQty] = useState('');
+  const [stagedSerials, setStagedSerials] = useState<string[]>([]);
+  const [stagedGroups, setStagedGroups] = useState<Array<{ serial: string; qty: number }>>([]);
+  const [editingSerialId, setEditingSerialId] = useState<string | null>(null);
+  const [editingSerialName, setEditingSerialName] = useState('');
+  const [serialBusy, setSerialBusy] = useState(false);
+
+  const loadSerials = async (productId: string) => {
+    const { data } = await supabase.from('product_serial_numbers').select('*').eq('product_id', productId).order('created_at');
+    setSerials(((data ?? []) as ProductSerialNumber[]));
+  };
+
+  useEffect(() => {
+    if (!product) { setSerials([]); setStagedSerials([]); setStagedGroups([]); return; }
+    loadSerials(product.id);
+  }, [product]);
+
+  const unusedSerial = (s: ProductSerialNumber) => s.status === 'available' && !s.sale_id;
+
+  const persistUniqueSerial = async (productId: string, rawName: string): Promise<boolean> => {
+    const name = rawName.trim();
+    if (!name) return false;
+    const { data: dup } = await supabase.from('product_serial_numbers').select('id').eq('product_id', productId).eq('serial_number', name).limit(1);
+    if (dup && (dup as Array<unknown>).length > 0) {
+      setError(`Serial number ${name} already exists for this product.`);
+      return false;
+    }
+    const { data, error } = await supabase.from('product_serial_numbers').insert({
+      product_id: productId, serial_number: name, mode: 'unique', status: 'available', quantity: 1,
+    }).select('id').single();
+    if (error) { setError(error.message); return false; }
+    await logAudit('serial.created', 'product_serial_numbers', (data as { id: string }).id, { product_id: productId, serial_number: name });
+    return true;
+  };
+
+  const persistSharedGroup = async (productId: string, rawName: string, qty: number): Promise<boolean> => {
+    const name = rawName.trim();
+    if (!name || !(qty > 0)) return false;
+    const { data, error } = await supabase.from('product_serial_numbers').insert({
+      product_id: productId, serial_number: name, mode: 'shared', status: 'available', quantity: qty,
+    }).select('id').single();
+    if (error) { setError(error.message); return false; }
+    await logAudit('serial.created', 'product_serial_numbers', (data as { id: string }).id, { product_id: productId, serial_number: name, quantity: qty });
+    return true;
+  };
+
+  const handleBulkAdd = async () => {
+    if (!product) return;
+    const lines = bulkText.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (!lines.length) { setError('Enter at least one serial number.'); return; }
+    setSerialBusy(true); setError(null);
+    let added = 0; let skipped = 0;
+    for (const line of lines) {
+      const ok = await persistUniqueSerial(product.id, line);
+      if (ok) added += 1; else skipped += 1;
+    }
+    setBulkText('');
+    await loadSerials(product.id);
+    setSerialBusy(false);
+    if (skipped > 0) setError(`${added} serial(s) added, ${skipped} skipped as duplicates.`);
+  };
+
+  const handleRenameSerial = async (s: ProductSerialNumber) => {
+    if (!unusedSerial(s)) { setError('Only unused serial numbers can be renamed.'); return; }
+    const name = editingSerialName.trim();
+    if (!name) { setError('Serial number is required.'); return; }
+    setSerialBusy(true); setError(null);
+    const { data: dup } = await supabase.from('product_serial_numbers').select('id').eq('product_id', s.product_id).eq('serial_number', name).limit(1);
+    if (dup && (dup as Array<unknown>).length > 0) {
+      setError(`Serial number ${name} already exists for this product.`);
+      setSerialBusy(false);
+      return;
+    }
+    const { error } = await supabase.from('product_serial_numbers').update({ serial_number: name }).eq('id', s.id);
+    if (error) { setError(error.message); setSerialBusy(false); return; }
+    await logAudit('serial.renamed', 'product_serial_numbers', s.id, { from: s.serial_number, to: name });
+    setEditingSerialId(null);
+    if (product) await loadSerials(product.id);
+    setSerialBusy(false);
+  };
+
+  const handleDeleteSerial = async (s: ProductSerialNumber) => {
+    if (!unusedSerial(s)) { setError('Only unused serial numbers can be deleted. Sold serials stay with their sale.'); return; }
+    if (!window.confirm(`Remove serial "${s.serial_number}"? This cannot be undone.`)) return;
+    setSerialBusy(true); setError(null);
+    const { error } = await supabase.from('product_serial_numbers').delete().eq('id', s.id);
+    if (error) { setError(error.message); setSerialBusy(false); return; }
+    await logAudit('serial.deleted', 'product_serial_numbers', s.id, { serial_number: s.serial_number });
+    if (product) await loadSerials(product.id);
+    setSerialBusy(false);
+  };
+
+  const handleSerialStatus = async (s: ProductSerialNumber, status: ProductSerialNumber['status']) => {
+    setSerialBusy(true); setError(null);
+    const { error } = await supabase.from('product_serial_numbers').update({ status }).eq('id', s.id);
+    if (error) { setError(error.message); setSerialBusy(false); return; }
+    await logAudit('serial.status_changed', 'product_serial_numbers', s.id, { from: s.status, to: status });
+    if (product) await loadSerials(product.id);
+    setSerialBusy(false);
+  };
+
+  const visibleSerials = serials.filter((s) => {
+    if (serialStatusFilter !== 'all' && s.status !== serialStatusFilter) return false;
+    if (serialSearch && !s.serial_number.toLowerCase().includes(serialSearch.trim().toLowerCase())) return false;
+    return true;
+  });
+  const availableSerialCount = serials.filter((s) => s.status === 'available').length;
   const [costPrice, setCostPrice] = useState(product?.cost_price?.toString() ?? '0');
   const [sellingPrice, setSellingPrice] = useState(product?.selling_price?.toString() ?? '0');
   const [openingStock, setOpeningStock] = useState('');
@@ -621,6 +765,21 @@ function ProductFormModal({
       setError('Opening stock must be zero or more.');
       return;
     }
+    if (product && product.serial_tracking_mode !== 'none' && serialMode !== product.serial_tracking_mode && serials.some((s) => s.status !== 'available')) {
+      setError('This product has sold or adjusted serials, so its tracking mode cannot be changed. Sold history stays intact.');
+      return;
+    }
+    const persistStagedSerials = async (productId: string) => {
+      for (const s of stagedSerials) {
+        const ok = await persistUniqueSerial(productId, s);
+        if (!ok) return false;
+      }
+      for (const g of stagedGroups) {
+        const ok = await persistSharedGroup(productId, g.serial, g.qty);
+        if (!ok) return false;
+      }
+      return true;
+    };
     setSaving(true);
     setError(null);
     const payload = {
@@ -638,6 +797,7 @@ function ProductFormModal({
       min_stock_level: product?.min_stock_level ?? 0,
       reorder_level: product?.reorder_level ?? 0,
       product_type: product?.product_type ?? 'simple',
+      serial_tracking_mode: serialMode,
       warranty_months: isFarm ? null : (product?.warranty_months ?? null),
       expiry_tracking: product?.expiry_tracking ?? false,
       is_active: product?.is_active ?? true,
@@ -723,6 +883,14 @@ function ProductFormModal({
       const savedId = product ? product.id : (edgeData as { product?: { id: string } } | null)?.product?.id;
       if (!product && savedId) await seedBalances(savedId, openingQty);
       if (savedId) await syncUnits(savedId);
+      if (!product && savedId) {
+        const stagedOk = await persistStagedSerials(savedId);
+        if (!stagedOk) {
+          setSaving(false);
+          onSaved('Product created, but some serial numbers were skipped as duplicates. Edit the product to review them.');
+          return;
+        }
+      }
       setSaving(false);
       onSaved(product ? 'Product updated successfully.' : 'Product created successfully.');
       return;
@@ -752,6 +920,14 @@ function ProductFormModal({
       }
       await seedBalances((created as { id: string }).id, openingQty);
       await syncUnits((created as { id: string }).id);
+      if (!product) {
+        const stagedOk = await persistStagedSerials((created as { id: string }).id);
+        if (!stagedOk) {
+          setSaving(false);
+          onSaved('Product created, but some serial numbers were skipped as duplicates. Edit the product to review them.');
+          return;
+        }
+      }
     }
 
     setSaving(false);
@@ -875,6 +1051,242 @@ function ProductFormModal({
               ))}
             </div>
           </div>
+        </div>
+        <div className="rounded-xl border border-slate-200 p-4 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-semibold text-slate-800">Serial Number Tracking</p>
+            {serialMode !== 'none' && product && (
+              <span className="text-xs text-slate-500">{availableSerialCount} available</span>
+            )}
+          </div>
+          <Select
+            label="Tracking mode"
+            value={serialMode}
+            onChange={(e) => setSerialMode(e.target.value as SerialTrackingMode)}
+          >
+            <option value="none">No Serial Number</option>
+            <option value="unique">Unique Serial Number Per Unit</option>
+            <option value="shared">Shared Serial Number</option>
+          </Select>
+          {serialMode === 'none' && (
+            <p className="text-xs text-slate-400">Quantity-only tracking. Serial fields stay hidden everywhere for this product.</p>
+          )}
+          {serialMode !== 'none' && !product && (
+            <div className="space-y-3">
+              <p className="text-xs text-slate-500">
+                {serialMode === 'unique'
+                  ? 'Add one serial per physical unit now (optional); the rest can be added after saving. Duplicates are rejected.'
+                  : 'Add one or more shared serial groups now (optional); the rest can be added after saving.'}
+              </p>
+              {serialMode === 'unique' ? (
+                <>
+                  <div className="flex gap-2">
+                    <Input label="Serial number" value={bulkText} onChange={(e) => setBulkText(e.target.value)} placeholder="e.g. PT001" className="flex-1" />
+                    <div className="flex items-end">
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          const name = bulkText.trim();
+                          if (!name) { setError('Enter a serial number.'); return; }
+                          if (stagedSerials.some((s) => s.toLowerCase() === name.toLowerCase())) { setError(`Serial number ${name} is already in the list.`); return; }
+                          setStagedSerials((prev) => [...prev, name]);
+                          setBulkText('');
+                          setError(null);
+                        }}
+                      >
+                        Add
+                      </Button>
+                    </div>
+                  </div>
+                  {stagedSerials.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {stagedSerials.map((s) => (
+                        <span key={s} className="inline-flex items-center gap-1 rounded-full bg-slate-900 text-white px-2.5 py-0.5 text-xs font-medium">
+                          {s}
+                          <button type="button" aria-label={`Remove ${s}`} onClick={() => setStagedSerials((prev) => prev.filter((x) => x !== s))} className="hover:text-rose-300">×</button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    <div className="sm:col-span-2">
+                      <Input label="Group serial" value={sharedSerial} onChange={(e) => setSharedSerial(e.target.value)} placeholder="e.g. BAT-2026-001" />
+                    </div>
+                    <Input label="Units" type="number" min="1" step="1" value={sharedQty} onChange={(e) => setSharedQty(e.target.value)} placeholder="10" />
+                  </div>
+                  <div className="flex justify-end">
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        const name = sharedSerial.trim();
+                        const qty = Math.floor(Number(sharedQty));
+                        if (!name) { setError('Enter a group serial.'); return; }
+                        if (!(qty > 0)) { setError('Enter how many units the group covers.'); return; }
+                        if (stagedGroups.some((g) => g.serial.toLowerCase() === name.toLowerCase())) { setError(`Group ${name} is already in the list.`); return; }
+                        setStagedGroups((prev) => [...prev, { serial: name, qty }]);
+                        setSharedSerial('');
+                        setSharedQty('');
+                        setError(null);
+                      }}
+                    >
+                      Add Group
+                    </Button>
+                  </div>
+                  {stagedGroups.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {stagedGroups.map((g) => (
+                        <span key={g.serial} className="inline-flex items-center gap-1 rounded-full bg-slate-900 text-white px-2.5 py-0.5 text-xs font-medium">
+                          {g.serial} · {g.qty}
+                          <button type="button" aria-label={`Remove ${g.serial}`} onClick={() => setStagedGroups((prev) => prev.filter((x) => x.serial !== g.serial))} className="hover:text-rose-300">×</button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+          {serialMode !== 'none' && product && (
+            <div className="space-y-3">
+              <div className="flex flex-col sm:flex-row gap-2">
+                <div className="relative flex-1">
+                  <input
+                    value={serialSearch}
+                    onChange={(e) => setSerialSearch(e.target.value)}
+                    placeholder="Search serials..."
+                    className="w-full pl-3 pr-3 py-2 text-sm border border-slate-300 rounded-lg outline-none focus:border-slate-900"
+                  />
+                </div>
+                <select
+                  value={serialStatusFilter}
+                  onChange={(e) => setSerialStatusFilter(e.target.value)}
+                  className="px-3 py-2 text-sm border border-slate-300 rounded-lg outline-none focus:border-slate-900 bg-white"
+                  aria-label="Filter by status"
+                >
+                  <option value="all">All statuses</option>
+                  <option value="available">Available</option>
+                  <option value="sold">Sold</option>
+                  <option value="reserved">Reserved</option>
+                  <option value="returned">Returned</option>
+                  <option value="damaged">Damaged</option>
+                  <option value="cancelled">Cancelled</option>
+                  <option value="lost">Lost</option>
+                </select>
+              </div>
+              {serialMode === 'unique' && (
+                <div className="space-y-2">
+                  <Textarea
+                    label="Bulk add (one serial per line)"
+                    value={bulkText}
+                    onChange={(e) => setBulkText(e.target.value)}
+                    placeholder={'PT001\nPT002\nPT003'}
+                  />
+                  <div className="flex justify-end">
+                    <Button size="sm" onClick={handleBulkAdd} disabled={serialBusy}>{serialBusy ? 'Adding...' : 'Add Serials'}</Button>
+                  </div>
+                </div>
+              )}
+              {serialMode === 'shared' && (
+                <div className="space-y-2">
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    <div className="sm:col-span-2">
+                      <Input label="Group serial" value={sharedSerial} onChange={(e) => setSharedSerial(e.target.value)} placeholder="e.g. BATCH-A" />
+                    </div>
+                    <Input label="Units" type="number" min="1" step="1" value={sharedQty} onChange={(e) => setSharedQty(e.target.value)} placeholder="6" />
+                  </div>
+                  <div className="flex justify-end">
+                    <Button
+                      size="sm"
+                      disabled={serialBusy}
+                      onClick={async () => {
+                        const name = sharedSerial.trim();
+                        const qty = Math.floor(Number(sharedQty));
+                        if (!name) { setError('Enter a group serial.'); return; }
+                        if (!(qty > 0) || !product) { setError('Enter how many units the group covers.'); return; }
+                        setSerialBusy(true); setError(null);
+                        const ok = await persistSharedGroup(product.id, name, qty);
+                        if (ok) { setSharedSerial(''); setSharedQty(''); await loadSerials(product.id); }
+                        setSerialBusy(false);
+                      }}
+                    >
+                      {serialBusy ? 'Adding...' : 'Add Group'}
+                    </Button>
+                  </div>
+                </div>
+              )}
+              <div className="divide-y divide-slate-100 rounded-lg border border-slate-100 max-h-56 overflow-y-auto">
+                {visibleSerials.length === 0 && (
+                  <p className="p-3 text-sm text-slate-400">
+                    {serials.length === 0 ? 'No serial numbers yet.' : 'No serials match the current filter.'}
+                  </p>
+                )}
+                {visibleSerials.map((s) => (
+                  <div key={s.id} className="flex items-center gap-2 p-2.5">
+                    {editingSerialId === s.id ? (
+                      <>
+                        <input
+                          value={editingSerialName}
+                          onChange={(e) => setEditingSerialName(e.target.value)}
+                          className="flex-1 px-3 py-1.5 text-sm border border-slate-300 rounded-lg outline-none focus:border-slate-900"
+                          autoFocus
+                        />
+                        <Button size="sm" onClick={() => handleRenameSerial(s)} disabled={serialBusy}>Save</Button>
+                        <Button size="sm" variant="ghost" onClick={() => setEditingSerialId(null)}>Cancel</Button>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-slate-800 truncate">{s.serial_number}</p>
+                          <p className="text-[11px] text-slate-400">
+                            {s.mode === 'shared' ? `Group · ${s.quantity} left` : 'Unique unit'}
+                          </p>
+                        </div>
+                        <span className={`shrink-0 inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium border ${s.status === 'available' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : s.status === 'sold' ? 'bg-slate-100 text-slate-500 border-slate-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                          {s.status}
+                        </span>
+                        {unusedSerial(s) && (
+                          <>
+                            <button
+                              type="button"
+                              title="Rename serial"
+                              onClick={() => { setEditingSerialId(s.id); setEditingSerialName(s.serial_number); setError(null); }}
+                              className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 shrink-0"
+                            >
+                              <Pencil size={13} />
+                            </button>
+                            <button
+                              type="button"
+                              title="Delete serial"
+                              onClick={() => handleDeleteSerial(s)}
+                              className="p-1.5 rounded-lg text-rose-400 hover:bg-rose-50 hover:text-rose-600 shrink-0"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </>
+                        )}
+                        {!unusedSerial(s) && s.status !== 'sold' && (
+                          <select
+                            value={s.status}
+                            disabled={serialBusy}
+                            onChange={(e) => handleSerialStatus(s, e.target.value as ProductSerialNumber['status'])}
+                            className="px-2 py-1 text-xs border border-slate-300 rounded-lg outline-none focus:border-slate-900 bg-white shrink-0"
+                            aria-label={`Change status of ${s.serial_number}`}
+                          >
+                            {(['available', 'reserved', 'cancelled', 'returned', 'damaged', 'lost'] as const).map((st) => (
+                              <option key={st} value={st}>{st}</option>
+                            ))}
+                          </select>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
         <Textarea label="Description" value={description} onChange={(e) => setDescription(e.target.value)} />
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">

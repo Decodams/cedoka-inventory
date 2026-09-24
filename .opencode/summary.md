@@ -147,3 +147,9 @@
 - Sale lines carry optional serial (input, merge-aware, cart/preview/PDF/detail display).
 - Receipt identity: CEDOKA GLOBAL LIMITED, unnumbered addresses, attendant = first name (PDF + preview).
 - Responsive: variance button enlarged + labeled; stat grids collapse to 1 col on phones.
+
+## Round 20 - serialized inventory (verified + migration deployed)
+- New migration 202609150012 (pushed live, tables verified): products.serial_tracking_mode (default none), product_serial_numbers (UNIQUE per product, status lifecycle), sale_serial_numbers links; RLS (open read, manager+ write, links read-only via sale visibility).
+- RPC rewritten transactionally: unique serial lock via FOR UPDATE (concurrency-safe), qty==count, dup + whole-qty checks, shared group decrement, history preserved, audit logged.
+- Product form: mode selector (default none) + full serial manager (add/bulk/rename/delete/status/search/filter) + staged entry for new products + mode-change guard (client + edge fn).
+- Sales: per-mode picker UI (searchable unique checklist with n/N sync, shared group select, free text for none); receipts/details/preview show linked serials; global serial search in product list.

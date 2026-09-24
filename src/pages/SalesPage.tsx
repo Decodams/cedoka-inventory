@@ -14,7 +14,7 @@ import { SALE_STATUS_LABELS, SALE_STATUS_STYLES } from '@/lib/statusStyles';
 import { useReceiptPDF } from '@/components/ReceiptPDF';
 import { SaleDetailModal } from '@/components/SaleDetailModal';
 import logoUrl from '@/logo.jpeg';
-import type { Branch, DailySale, Product, SaleItem, UserProfile } from '@/types/database';
+import type { Branch, DailySale, Product, ProductSerialNumber, SaleItem, UserProfile } from '@/types/database';
 
 export function SalesPage() {
   const { user } = useAuth();
@@ -69,7 +69,7 @@ export function SalesPage() {
 }
 
 function Metric({ label, value }: { label: string; value: string }) { return <div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs text-slate-400">{label}</p><p className="mt-1 text-xl font-bold text-slate-900">{value}</p></div>; }
-type CartItem = Omit<SaleItem, 'id' | 'sale_id' | 'created_at'> & { product: Product };
+type CartItem = Omit<SaleItem, 'id' | 'sale_id' | 'created_at'> & { product: Product; serial_numbers?: string[] | null };
 
 function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Branch[]; currentUser: UserProfile | null; onClose: () => void; onSaved: () => void }) {
   const { downloadReceipt, printReceipt } = useReceiptPDF();
@@ -84,6 +84,11 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
   const [unitPrice, setUnitPrice] = useState('0');
   const [discount, setDiscount] = useState('0');
   const [serial, setSerial] = useState('');
+  const [selectedSerials, setSelectedSerials] = useState<string[]>([]);
+  const [serialFilter, setSerialFilter] = useState('');
+  const [availableSerials, setAvailableSerials] = useState<ProductSerialNumber[]>([]);
+  const [loadingSerials, setLoadingSerials] = useState(false);
+  const [selectedGroup, setSelectedGroup] = useState('');
   const [lineUnit, setLineUnit] = useState('');
   const [productUnits, setProductUnits] = useState<Record<string, string[]>>({});
   const [items, setItems] = useState<CartItem[]>([]);
@@ -176,9 +181,33 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
       setUnitPrice(String(product.selling_price));
       setLineUnit(product.unit || 'unit');
       setSerial('');
+      setSelectedSerials([]);
+      setSerialFilter('');
+      setSelectedGroup('');
     }
     setError(null);
   };
+
+  const selectedMode = selectedProduct?.serial_tracking_mode ?? 'none';
+
+  useEffect(() => {
+    if (!selectedProduct || (selectedProduct.serial_tracking_mode ?? 'none') === 'none') {
+      setAvailableSerials([]);
+      setLoadingSerials(false);
+      return;
+    }
+    setLoadingSerials(true);
+    supabase
+      .from('product_serial_numbers')
+      .select('*')
+      .eq('product_id', selectedProduct.id)
+      .eq('status', 'available')
+      .order('serial_number')
+      .then(({ data }) => {
+        setAvailableSerials(((data ?? []) as ProductSerialNumber[]));
+        setLoadingSerials(false);
+      });
+  }, [selectedProduct?.id]);
 
   const stepQuantity = (delta: number) => {
     setQuantity((current) => {
@@ -187,26 +216,31 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
     });
   };
 
-  const pushToCart = (product: Product, qty: number, price: number, disc: number, saleUnit: string, serial: string | null) => {
+  const pushToCart = (product: Product, qty: number, price: number, disc: number, saleUnit: string, serial: string | null, serials: string[] | null) => {
     setItems((current) => {
-      const existing = current.findIndex((it) => it.product_id === product.id && it.unit_price === price && it.discount_value === disc && (it.unit ?? product.unit) === saleUnit && (it.serial_number ?? null) === (serial ?? null));
+      const existing = current.findIndex((it) => it.product_id === product.id && it.unit_price === price && it.discount_value === disc && (it.unit ?? product.unit) === saleUnit && (it.serial_number ?? null) === (serial ?? null) && JSON.stringify(it.serial_numbers ?? null) === JSON.stringify(serials ?? null));
       if (existing >= 0) {
         const next = [...current];
         next[existing] = { ...next[existing], quantity: Math.round((next[existing].quantity + qty) * 100) / 100 };
         return next;
       }
-      return [...current, { product, product_id: product.id, quantity: qty, unit_price: price, discount_value: disc, unit: saleUnit, serial_number: serial }];
+      return [...current, { product, product_id: product.id, quantity: qty, unit_price: price, discount_value: disc, unit: saleUnit, serial_number: serial, serial_numbers: serials }];
     });
   };
 
   const quickAdd = (product: Product) => {
+    // Serialised products need explicit serial selection - open them instead.
+    if ((product.serial_tracking_mode ?? 'none') !== 'none') {
+      selectProduct(product.id);
+      return;
+    }
     const stock = stockOf(product.id);
     const alreadyInCart = items.filter((it) => it.product_id === product.id).reduce((sum, it) => sum + it.quantity, 0);
     if (stock !== undefined && alreadyInCart + 1 > stock) {
       setError(`Only ${formatUnitQuantity(stock, product.unit)} of ${product.name} is in stock at this branch.`);
       return;
     }
-    pushToCart(product, 1, Number(product.selling_price) || 0, 0, product.unit || 'unit', null);
+    pushToCart(product, 1, Number(product.selling_price) || 0, 0, product.unit || 'unit', null, null);
     setError(null);
   };
 
@@ -226,14 +260,30 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
       return;
     }
     const saleUnit = lineUnit || product.unit || 'unit';
-    const saleSerial = serial.trim() || null;
-    pushToCart(product, qty, price, disc, saleUnit, saleSerial);
+    const mode = product.serial_tracking_mode ?? 'none';
+    if (mode === 'unique') {
+      if (!Number.isInteger(qty)) { setError('Unique-serialised items need a whole quantity.'); return; }
+      if (selectedSerials.length !== qty) { setError(`Select exactly ${qty} serial number(s) for ${product.name}.`); return; }
+      if (new Set(selectedSerials).size !== selectedSerials.length) { setError('Duplicate serial numbers selected.'); return; }
+      pushToCart(product, qty, price, disc, saleUnit, [...selectedSerials].sort().join(', ') || null, [...selectedSerials]);
+    } else if (mode === 'shared') {
+      if (!selectedGroup) { setError(`Select a serial group for ${product.name}.`); return; }
+      const group = availableSerials.find((g) => g.serial_number === selectedGroup && g.mode === 'shared');
+      if (group && qty > Number(group.quantity)) { setError(`Group ${selectedGroup} has only ${group.quantity} unit(s) left.`); return; }
+      pushToCart(product, qty, price, disc, saleUnit, selectedGroup, null);
+    } else {
+      const saleSerial = serial.trim() || null;
+      pushToCart(product, qty, price, disc, saleUnit, saleSerial, null);
+    }
     setProductId('');
     setQuery('');
     setQuantity('1');
     setUnitPrice('0');
     setDiscount('0');
     setSerial('');
+    setSelectedSerials([]);
+    setSerialFilter('');
+    setSelectedGroup('');
     setError(null);
   };
 
@@ -257,7 +307,7 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
       p_payment_method: paymentMethod,
       p_amount_paid: paid,
       p_notes: notes.trim() || null,
-      p_items: items.map((item) => ({ product_id: item.product_id, quantity: item.quantity, unit_price: item.unit_price, discount_value: item.discount_value, unit: item.unit ?? item.product.unit ?? null, serial_number: item.serial_number ?? null })),
+      p_items: items.map((item) => ({ product_id: item.product_id, quantity: item.quantity, unit_price: item.unit_price, discount_value: item.discount_value, unit: item.unit ?? item.product.unit ?? null, serial_number: item.serial_number ?? null, serial_numbers: item.serial_numbers ?? [] })),
     });
     setSaving(false);
     if (rpcError) { setError(rpcError.message); return; }
@@ -276,6 +326,9 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
     setUnitPrice('0');
     setDiscount('0');
     setSerial('');
+    setSelectedSerials([]);
+    setSerialFilter('');
+    setSelectedGroup('');
     setCustomerName('');
     setAmountPaid('');
     setPaidTouched(false);
@@ -395,7 +448,71 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
               <Select label="Unit" value={lineUnit || selectedProduct.unit || 'unit'} onChange={(event) => setLineUnit(event.target.value)}>
                 {unitsForProduct(selectedProduct).map((u) => <option key={u} value={u}>{u}</option>)}
               </Select>
-              <Input label="Serial Number (optional)" value={serial} onChange={(event) => setSerial(event.target.value)} placeholder="e.g. SN123456" />
+              {selectedMode === 'none' && (
+                <Input label="Serial Number (optional)" value={serial} onChange={(event) => setSerial(event.target.value)} placeholder="e.g. SN123456" />
+              )}
+              {selectedMode === 'unique' && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-600">
+                      Select serials ({selectedSerials.length} / {Number(quantity) || 0} selected)
+                    </span>
+                    {loadingSerials && <span className="text-xs text-slate-400">Loading...</span>}
+                  </div>
+                  <div className="relative">
+                    <input
+                      value={serialFilter}
+                      onChange={(event) => setSerialFilter(event.target.value)}
+                      placeholder="Search serials..."
+                      className="w-full pl-3 pr-3 py-2 text-sm border border-slate-300 rounded-lg outline-none focus:border-slate-900"
+                    />
+                  </div>
+                  <div className="max-h-36 overflow-y-auto divide-y divide-slate-100 rounded-lg border border-slate-100">
+                    {availableSerials
+                      .filter((s) => !serialFilter.trim() || s.serial_number.toLowerCase().includes(serialFilter.trim().toLowerCase()))
+                      .slice(0, 100)
+                      .map((s) => {
+                        const checked = selectedSerials.includes(s.serial_number);
+                        return (
+                          <label key={s.id} className="flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-slate-50 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => {
+                                setSelectedSerials((prev) => (checked ? prev.filter((x) => x !== s.serial_number) : [...prev, s.serial_number]));
+                                setError(null);
+                              }}
+                              className="rounded border-slate-300"
+                            />
+                            <span className="font-medium text-slate-800">{s.serial_number}</span>
+                            <span className="text-xs text-slate-400 capitalize">{s.status}</span>
+                          </label>
+                        );
+                      })}
+                    {!loadingSerials && availableSerials.length === 0 && (
+                      <p className="p-3 text-sm text-slate-400">No available serials for this product.</p>
+                    )}
+                  </div>
+                  {availableSerials.length > 0 && selectedSerials.length !== (Number(quantity) || 0) && (
+                    <p className="text-xs text-amber-600">Select exactly {Number(quantity) || 0} serial number(s) for this quantity.</p>
+                  )}
+                </div>
+              )}
+              {selectedMode === 'shared' && (
+                <div className="space-y-2">
+                  <Select label="Serial Group" value={selectedGroup} onChange={(event) => { setSelectedGroup(event.target.value); setError(null); }}>
+                    <option value="">Select a group...</option>
+                    {availableSerials.filter((s) => s.mode === 'shared').map((g) => (
+                      <option key={g.id} value={g.serial_number}>
+                        {g.serial_number} · {g.quantity} left
+                      </option>
+                    ))}
+                  </Select>
+                  {availableSerials.filter((s) => s.mode === 'shared').length === 0 && !loadingSerials && (
+                    <p className="text-xs text-slate-400">No serial groups defined for this product yet.</p>
+                  )}
+                </div>
+              )}
               <div className="grid gap-3 sm:grid-cols-3">
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">Qty{selectedProduct.unit ? ` (${selectedProduct.unit})` : ''}</label>

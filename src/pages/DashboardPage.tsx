@@ -157,6 +157,15 @@ export function DashboardPage() {
     { cacheKey: isSuperAdmin ? 'dash:admin:nostock' : undefined, ttlMs: 60_000 },
   );
 
+  const { data: stockBalances } = useSupabaseQuery<Array<{ current_stock: number; min_stock_level: number }>>(
+    () => supabase.from('inventory_balances').select('current_stock,min_stock_level').limit(500),
+    [],
+    { cacheKey: `dash:stock:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
+  );
+  const lowStockCount = (stockBalances ?? []).filter(
+    (b) => Number(b.min_stock_level) > 0 && Number(b.current_stock) <= Number(b.min_stock_level),
+  ).length;
+
   const mySales = useMemo(() => sales ?? [], [sales]);
   const myTotalSales = mySales.filter((s) => s.status === 'completed').reduce((sum, s) => sum + Number(s.unit_price) * s.quantity - Number(s.discount_value), 0);
   const myPendingSales = mySales.filter((s) => s.status === 'pending').reduce((sum, s) => sum + Number(s.unit_price) * s.quantity - Number(s.discount_value), 0);
@@ -379,7 +388,7 @@ export function DashboardPage() {
             <StatusItem icon={<CheckCircle2 size={16} />} label="Submitted" value={submittedReports.length.toString()} color="blue" />
             <StatusItem icon={<AlertTriangle size={16} />} label="Mgmt Issues" value={managementIssues.length.toString()} color="rose" />
             <StatusItem icon={<Clock size={16} />} label="Overdue" value={overdueIssues.length.toString()} color="rose" />
-            <StatusItem icon={<ShoppingCart size={16} />} label="Low Stock" value="0" color="blue" />
+            <StatusItem icon={<ShoppingCart size={16} />} label="Low Stock" value={lowStockCount.toString()} color="blue" />
           </div>
           {isSalesPerson && (
             <div className="pt-3 border-t border-slate-100">

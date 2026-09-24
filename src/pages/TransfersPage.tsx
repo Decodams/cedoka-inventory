@@ -362,8 +362,8 @@ function TransferDetailModal({ transfer, onClose }: { transfer: StockTransfer; o
         </div>
         <h4 className="text-sm font-semibold text-slate-900">Items</h4>
         {items.length ? (
-          <div className="border border-slate-200 rounded-xl overflow-hidden">
-            <table className="w-full text-sm">
+          <div className="border border-slate-200 rounded-xl overflow-hidden overflow-x-auto">
+            <table className="w-full text-sm min-w-[360px]">
               <thead><tr className="bg-slate-50 text-xs text-slate-500"><th className="text-left px-4 py-2">Product</th><th className="text-right px-4 py-2">Qty</th><th className="text-right px-4 py-2">Received</th></tr></thead>
               <tbody>
                 {items.map((it: unknown) => {

@@ -30,6 +30,7 @@ export function BusinessBranchPage() {
   const [editingBiz, setEditingBiz] = useState<Business | null>(null);
   const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const { data: businesses, loading, error, refetch } = useSupabaseQuery<Business[]>(
     () => supabase.from('businesses').select('*').order('name'),
@@ -89,7 +90,7 @@ export function BusinessBranchPage() {
       body: { p_entity: 'unit', p_id: u.id },
     });
     if (fnError) {
-      window.alert(fnError.message.includes('Failed to send a request')
+      setActionError(fnError.message.includes('Failed to send a request')
         ? 'Delete service is unreachable. Ask an administrator to deploy the delete-organization function.'
         : fnError.message);
       return;
@@ -97,11 +98,13 @@ export function BusinessBranchPage() {
     refetchUnits();
   };
 
-  const handleDeleteCategory = async (cat: Category) => {    const confirmed = window.confirm(`Delete category "${cat.name}"?`);
+  const handleDeleteCategory = async (cat: Category) => {
+    setActionError(null);
+    const confirmed = window.confirm(`Delete category "${cat.name}"?`);
     if (!confirmed) return;
     const { data: prods } = await supabase.from('products').select('id').eq('category_id', cat.id).limit(1);
     if (prods && prods.length > 0) {
-      window.alert(`Cannot delete category "${cat.name}" because it is currently assigned to products. Please reassign or delete those products first.`);
+      setActionError(`Cannot delete category "${cat.name}" because it is assigned to products. Reassign or delete those products first.`);
       return;
     }
     const { error: fnError } = await supabase.functions.invoke('manage-category', {
@@ -110,7 +113,7 @@ export function BusinessBranchPage() {
     if (fnError) {
       const { error: directError } = await supabase.from('categories').delete().eq('id', cat.id);
       if (directError) {
-        window.alert('Could not delete category: ' + directError.message);
+        setActionError('Could not delete category: ' + directError.message);
         return;
       }
     }
@@ -122,6 +125,12 @@ export function BusinessBranchPage() {
 
   return (
     <div className="space-y-6">
+      {actionError && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 flex items-start justify-between gap-3">
+          <p className="text-sm text-rose-700">{actionError}</p>
+          <button onClick={() => setActionError(null)} className="text-rose-400 hover:text-rose-600 text-sm font-medium shrink-0">Dismiss</button>
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold text-slate-900">Businesses & Branches</h2>
@@ -409,8 +418,9 @@ export function BusinessBranchPage() {
                             onClick={async () => {
                               const confirmed = window.confirm(`Delete ${branch.name}? If this branch has staff, stock, sales, or other records, the database will protect those records and the branch cannot be deleted.`);
                               if (!confirmed) return;
+                              setActionError(null);
                               const { error: deleteError } = await supabase.from('branches').delete().eq('id', branch.id);
-                              if (deleteError) window.alert(`Branch was not deleted: ${deleteError.message}`);
+                              if (deleteError) setActionError(`Branch was not deleted: ${deleteError.message}`);
                               else refetch();
                             }}
                             className="p-1.5 rounded-lg text-rose-400 hover:bg-rose-50 hover:text-rose-600 shrink-0"

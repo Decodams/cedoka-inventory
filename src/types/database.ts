@@ -181,6 +181,7 @@ export interface Product {
   reorder_level: number;
   is_active: boolean;
   product_type: ProductType;
+  serial_tracking_mode: 'none' | 'unique' | 'shared';
   warranty_months: number | null;
   expiry_tracking: boolean;
   category?: Category;
@@ -512,6 +513,41 @@ export interface ProductUnit {
   product_id: string;
   unit_name: string;
   is_default: boolean;
+  created_at: string;
+}
+
+export type SerialTrackingMode = 'none' | 'unique' | 'shared';
+
+export type SerialStatus =
+  | 'available'
+  | 'reserved'
+  | 'sold'
+  | 'cancelled'
+  | 'returned'
+  | 'damaged'
+  | 'lost';
+
+export interface ProductSerialNumber {
+  id: string;
+  product_id: string;
+  serial_number: string;
+  mode: 'unique' | 'shared';
+  status: SerialStatus;
+  quantity: number;
+  sale_id: string | null;
+  sold_at: string | null;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SaleSerialNumber {
+  id: string;
+  sale_id: string;
+  sale_item_id: string | null;
+  product_id: string;
+  serial_number_id: string | null;
+  serial_number: string;
   created_at: string;
 }
 
