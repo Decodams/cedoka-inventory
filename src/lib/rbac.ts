@@ -92,18 +92,36 @@ export function isAtLeast(user: UserProfile | null, minRole: ExtendedRoleName): 
 export function canAccessBusiness(user: UserProfile | null, businessId: string): boolean {
   if (!user) return false;
   if (hasRole(user, 'super_admin')) return true;
-  if (hasRole(user, 'admin')) return user.business_id === businessId;
-  if (hasRole(user, 'manager', 'sales_person', 'supervisor', 'accountant', 'inventory_officer', 'transport_officer', 'farm_operations_officer')) return user.business_id === businessId;
-  return false;
+  return accessibleBusinessIds(user).includes(businessId);
+}
+
+/**
+ * Every business the user oversees: their primary business plus every explicit
+ * assignment row. This is what lets one Admin be added to several businesses.
+ */
+export function accessibleBusinessIds(user: UserProfile | null): string[] {
+  if (!user) return [];
+  const ids = new Set<string>();
+  if (user.business_id) ids.add(user.business_id);
+  for (const id of user.business_assignment_ids ?? []) if (id) ids.add(id);
+  return [...ids];
+}
+
+/** Every branch the user explicitly oversees (primary branch + assignments). */
+export function accessibleBranchIds(user: UserProfile | null): string[] {
+  if (!user) return [];
+  const ids = new Set<string>();
+  if (user.branch_id) ids.add(user.branch_id);
+  for (const id of user.branch_assignment_ids ?? []) if (id) ids.add(id);
+  return [...ids];
 }
 
 // CHECK IF ACTOR CAN ACCESS BRANCH
 export function canAccessBranch(user: UserProfile | null, branchId: string): boolean {
   if (!user) return false;
   if (hasRole(user, 'super_admin')) return true;
-  if (hasRole(user, 'admin')) return true; // admin can access all branches in their business
-  if (hasRole(user, 'manager', 'sales_person', 'supervisor', 'accountant', 'inventory_officer', 'transport_officer', 'farm_operations_officer')) return user.branch_id === branchId;
-  return false;
+  if (hasRole(user, 'admin')) return true; // admin can access all branches in their businesses
+  return accessibleBranchIds(user).includes(branchId);
 }
 
 // CHECK IF ACTOR CAN CREATE ROLE

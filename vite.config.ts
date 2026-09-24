@@ -8,25 +8,50 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
+      // Registration is explicit in src/main.tsx via virtual:pwa-register so the
+      // app can react to updates, so no script is injected into index.html.
       registerType: 'autoUpdate',
-      includeAssets: ['logo.jpeg', 'icon-192x192.png', 'icon-512x512.png'],
+      injectRegister: false,
+      includeAssets: [
+        'favicon-32x32.png',
+        'apple-touch-icon.png',
+        'icon-192x192.png',
+        'icon-512x512.png',
+        'icon-maskable-192x192.png',
+        'icon-maskable-512x512.png',
+        'logo.jpeg',
+      ],
       manifest: {
+        id: '/',
         name: 'Cedoka Inventory',
-        short_name: 'Inventory',
-        description: 'Cedoka Global Limited - Inventory & Sales Management',
-        theme_color: '#0f172a',
-        background_color: '#ffffff',
+        short_name: 'Cedoka',
+        description: 'Cedoka Global Limited — Inventory & Sales Management',
+        theme_color: '#101c27',
+        background_color: '#101c27',
         display: 'standalone',
+        display_override: ['standalone', 'minimal-ui'],
+        orientation: 'any',
         scope: '/',
         start_url: '/',
+        lang: 'en',
+        dir: 'ltr',
+        categories: ['business', 'productivity', 'finance'],
+        // 'any' and 'maskable' must be separate entries: a photo-style logo
+        // stretched into the Android mask gets cropped, and a declared size that
+        // does not match the real file blocks Chrome's install prompt.
         icons: [
-          { src: 'icon-192x192.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
-          { src: 'icon-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
-          { src: 'logo.jpeg', sizes: '512x512', type: 'image/jpeg', purpose: 'any' },
+          { src: 'icon-192x192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: 'icon-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: 'icon-maskable-192x192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
+          { src: 'icon-maskable-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,jpeg}'],
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,jpeg,webmanifest}'],
+        cleanupOutdatedCaches: true,
+        clientsClaim: true,
+        skipWaiting: true,
+        navigateFallback: '/index.html',
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/.*\.supabase\.co\/.*$/,

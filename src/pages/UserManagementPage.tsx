@@ -6,8 +6,9 @@ import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { Input, Select } from '@/components/ui/Form';
+import { ChipSelect } from '@/components/ui/ChipSelect';
 import { Badge } from '@/components/ui/Badge';
-import { ROLE_COLORS, hasRole, isAtLeast, canCreateRole } from '@/lib/rbac';
+import { ROLE_COLORS, hasRole, isAtLeast, canCreateRole, accessibleBusinessIds } from '@/lib/rbac';
 import { edgeErrorMessage } from '@/lib/edge';
 import type { UserProfile, Business, Branch, Role, RoleName, Unit } from '@/types/database';
 
@@ -224,18 +225,33 @@ function EditUserModal({
   user: UserProfile; roles: Role[]; businesses: Business[]; branches: Branch[]; orgUnits: Unit[]; currentUser: UserProfile | null; onClose: () => void; onSaved: () => void;
 }) {
   const [roleId, setRoleId] = useState('');
-  const [businessId, setBusinessId] = useState('');
+  const [businessIds, setBusinessIds] = useState<string[]>([]);
   const [branchIds, setBranchIds] = useState<string[]>([]);
   const [unitIds, setUnitIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // The profile column stays the "primary" scope; the full set lives in the
+  // assignment tables so one Admin can be added to many businesses.
+  const businessId = businessIds[0] ?? '';
 
   useEffect(() => {
     setRoleId(user.role_id);
-    setBusinessId(user.business_id ?? '');
-    setBranchIds(user.branch_id ? [user.branch_id] : []);
-    supabase.from('user_unit_assignments').select('unit_id').eq('user_id', user.id).then(({ data }) => {
-      if (data) setUnitIds((data as Array<{ unit_id: string }>).map((r) => r.unit_id));
+    const primaryBusiness = user.business_id ? [user.business_id] : [];
+    const primaryBranch = user.branch_id ? [user.branch_id] : [];
+    setBusinessIds(primaryBusiness);
+    setBranchIds(primaryBranch);
+    setUnitIds([]);
+    Promise.all([
+      supabase.from('user_business_assignments').select('business_id').eq('user_id', user.id),
+      supabase.from('user_branch_assignments').select('branch_id').eq('user_id', user.id),
+      supabase.from('user_unit_assignments').select('unit_id').eq('user_id', user.id),
+    ]).then(([bizRes, branchRes, unitRes]) => {
+      const biz = (bizRes.data ?? []) as Array<{ business_id: string }>;
+      const bch = (branchRes.data ?? []) as Array<{ branch_id: string }>;
+      const unt = (unitRes.data ?? []) as Array<{ unit_id: string }>;
+      setBusinessIds([...new Set([...primaryBusiness, ...biz.map((r) => r.business_id)])].filter(Boolean));
+      setBranchIds([...new Set([...primaryBranch, ...bch.map((r) => r.branch_id)])].filter(Boolean));
+      setUnitIds(unt.map((r) => r.unit_id));
     });
   }, [user]);
 
@@ -258,33 +274,31 @@ function EditUserModal({
   }, [currentUser, user]);
   void autoBusinessId;
 
+  const roleNameForForm = roles.find((r) => r.id === roleId)?.name ?? '';
+  const isMultiBusinessRole = roleNameForForm === 'admin';
+
   const availableBranches = useMemo(() => {
-    if (!businessId) return [];
-    if (hasRole(currentUser, 'super_admin') || hasRole(currentUser, 'admin')) return branches.filter((b) => b.business_id === businessId);
+    if (businessIds.length === 0) return [];
+    if (hasRole(currentUser, 'super_admin') || hasRole(currentUser, 'admin')) return branches.filter((b) => businessIds.includes(b.business_id));
     return [];
-  }, [branches, businessId, currentUser]);
+  }, [branches, businessIds, currentUser]);
 
   const canManageUnits = hasRole(currentUser, 'super_admin') || hasRole(currentUser, 'admin');
   const availableUnits = useMemo(() => {
-    if (!businessId) return [];
-    return orgUnits.filter((u) => u.business_id === businessId && (branchIds.length === 0 || !u.branch_id || branchIds.includes(u.branch_id)));
-  }, [orgUnits, businessId, branchIds]);
+    if (businessIds.length === 0) return [];
+    return orgUnits.filter((u) => businessIds.includes(u.business_id) && (branchIds.length === 0 || !u.branch_id || branchIds.includes(u.branch_id)));
+  }, [orgUnits, businessIds, branchIds]);
 
-  const myBusinessIds = useMemo(() => {
-    if (hasRole(currentUser, 'super_admin')) return businesses.map((b) => b.id);
-    const ids = new Set<string>();
-    if (currentUser?.business_id) ids.add(currentUser.business_id);
-    // Include assigned businesses for multi-business admins
-    const assignments = (currentUser as unknown as { business_assignments?: Array<{ business_id: string }> })?.business_assignments;
-    if (Array.isArray(assignments)) for (const a of assignments) if (a.business_id) ids.add(a.business_id);
-    return [...ids];
-  }, [businesses, currentUser]);
+  const myBusinessIds = useMemo(
+    () => (hasRole(currentUser, 'super_admin') ? businesses.map((b) => b.id) : accessibleBusinessIds(currentUser)),
+    [businesses, currentUser],
+  );
 
   const availableBusinesses = useMemo(() => {
     if (hasRole(currentUser, 'super_admin')) return businesses;
     if (myBusinessIds.length === 0) return [];
     return businesses.filter((b) => myBusinessIds.includes(b.id));
-  }, [businesses, myBusinessIds]);
+  }, [businesses, myBusinessIds, currentUser]);
 
   const needsBusiness = true;
   const needsBranch = true;
@@ -293,7 +307,19 @@ function EditUserModal({
     if (!roleId) { setError('Role is required'); return; }
     setError(null); setSaving(true);
     const selectedRoleName = roles.find((r) => r.id === roleId)?.name;
-    const payload = { p_user_id: user.id, p_role_name: selectedRoleName, p_business_id: businessId || null, p_branch_id: branchIds[0] ?? null };
+    if (selectedRoleName === 'admin' && businessIds.length === 0) {
+      setError('An Admin needs at least one business assignment');
+      setSaving(false);
+      return;
+    }
+    const payload = {
+      p_user_id: user.id,
+      p_role_name: selectedRoleName,
+      p_business_id: businessId || null,
+      p_branch_id: branchIds[0] ?? null,
+      p_business_ids: businessIds,
+      p_branch_ids: branchIds,
+    };
     const { error: err } = await supabase.functions.invoke('update-user-role', { body: payload });
     if (err && !String(err.message || '').includes('Failed to send a request')) {
       setError(await edgeErrorMessage(err, 'Could not update the user.'));
@@ -308,6 +334,17 @@ function EditUserModal({
       }).eq('id', user.id);
       if (directErr) {
         setError(`User service is unreachable and direct update failed: ${directErr.message}. Ask an administrator to deploy the update-user-role function.`);
+        setSaving(false);
+        return;
+      }
+    }
+    // Persist multi-business oversight (an Admin may oversee several businesses).
+    const { error: clearBizErr } = await supabase.from('user_business_assignments').delete().eq('user_id', user.id);
+    if (!clearBizErr && selectedRoleName === 'admin' && businessIds.length > 0) {
+      const { error: bizAssignErr } = await supabase.from('user_business_assignments')
+        .insert(businessIds.map((business_id) => ({ user_id: user.id, business_id })));
+      if (bizAssignErr) {
+        setError(`Role saved, but business assignments failed: ${bizAssignErr.message}`);
         setSaving(false);
         return;
       }
@@ -343,27 +380,42 @@ function EditUserModal({
     <Modal open onClose={onClose} title="Edit User Role & Scope" size="md">
       <div className="space-y-4">
         <p className="text-sm text-slate-600">Editing <strong>{user.full_name}</strong> ({user.email}). Super Admin accounts are locked.</p>
-        <Select label="Role" value={roleId} onChange={(e) => { setRoleId(e.target.value); setBusinessId(''); setBranchIds([]); }}>
+        <Select label="Role" value={roleId} onChange={(e) => { setRoleId(e.target.value); setBusinessIds([]); setBranchIds([]); setUnitIds([]); }}>
           <option value="">Select a role...</option>
           {availableRoles.map((r) => <option key={r.id} value={r.id}>{r.display_name}</option>)}
         </Select>
-        {needsBusiness && (
-          <Select label="Business Unit" value={businessId} onChange={(e) => { setBusinessId(e.target.value); setBranchIds([]); }}>
+        {isMultiBusinessRole ? (
+          <ChipSelect
+            label="Businesses this Admin oversees"
+            hint="Add as many businesses as needed. The Admin can oversee and act in every selected business and its branches."
+            options={availableBusinesses.map((b) => ({ id: b.id, label: b.name }))}
+            selected={businessIds}
+            onChange={(ids) => {
+              setBusinessIds(ids);
+              setBranchIds((prev) => prev.filter((branchId) => {
+                const branch = branches.find((x) => x.id === branchId);
+                return branch ? ids.includes(branch.business_id) : false;
+              }));
+            }}
+            activeClass="bg-blue-600 text-white"
+            emptyMessage="No businesses are available in your scope."
+          />
+        ) : needsBusiness ? (
+          <Select label="Business Unit" value={businessId} onChange={(e) => { setBusinessIds(e.target.value ? [e.target.value] : []); setBranchIds([]); }}>
             <option value="">Select a business...</option>
             {availableBusinesses.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </Select>
-        )}
-        {needsBranch && businessId && (
-          <div className="space-y-2">
-            <span className="flex items-center gap-1 text-sm text-slate-600"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-rose-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><line x1="1" y1="8" x2="22" y2="8"></line><line x1="1" y1="12" x2="22" y2="12"></line><line x1="1" y1="16" x2="22" y2="16"></line><polyline points="8 21 12 16 16 21"></polyline></svg>Branch</span>
-            <div className="flex flex-wrap gap-2">
-              {availableBranches.map((b) => (
-                <div key={b.id} className={`selected-chip inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${branchIds.includes(b.id) ? 'bg-rose-100 text-rose-600' : 'border border-rose-300 text-rose-700 hover:bg-rose-50'}`} onClick={() => { setBranchIds((prev) => (branchIds.includes(b.id) ? prev.filter((id) => id !== b.id) : [...prev, b.id])); }}>
-                  {b.name}
-                </div>
-              ))}
-            </div>
-          </div>
+        ) : null}
+        {needsBranch && businessIds.length > 0 && (
+          <ChipSelect
+            label={isMultiBusinessRole ? 'Branches under this Admin (optional)' : 'Branch'}
+            hint={isMultiBusinessRole ? 'Leave empty to cover every branch of the selected businesses.' : undefined}
+            options={availableBranches.map((b) => ({ id: b.id, label: b.name, sublabel: businesses.find((x) => x.id === b.business_id)?.name ? `· ${businesses.find((x) => x.id === b.business_id)?.name}` : undefined }))}
+            selected={branchIds}
+            onChange={setBranchIds}
+            activeClass="bg-rose-600 text-white"
+            emptyMessage="No branches defined for the selected businesses yet."
+          />
         )}
         {canManageUnits && businessId && (
           <div className="space-y-2">
@@ -397,10 +449,12 @@ function CreateUserModal({
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [roleId, setRoleId] = useState('');
-  const [businessId, setBusinessId] = useState('');
+  // Admins can be created straight into several businesses.
+  const [businessIds, setBusinessIds] = useState<string[]>([]);
   const [branchIds, setBranchIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const businessId = businessIds[0] ?? '';
 
   const availableRoles = roles.filter((r) => {
     if (hasRole(currentUser, 'super_admin')) return true;
@@ -424,31 +478,27 @@ function CreateUserModal({
   void autoDetectedBusinessId;
 
   const availableBranches = useMemo(() => {
-    if (!businessId) return [];
-    if (hasRole(currentUser, 'super_admin')) return branches.filter((b) => b.business_id === businessId);
-    if (hasRole(currentUser, 'admin')) return branches.filter((b) => b.business_id === businessId);
+    if (businessIds.length === 0) return [];
+    if (hasRole(currentUser, 'super_admin') || hasRole(currentUser, 'admin')) return branches.filter((b) => businessIds.includes(b.business_id));
     if (hasRole(currentUser, 'manager')) return branches.filter((b) => b.id === currentUser?.branch_id);
     return [];
-  }, [branches, businessId, currentUser]);
+  }, [branches, businessIds, currentUser]);
 
-  const myBusinessIdsCreate = useMemo(() => {
-    if (hasRole(currentUser, 'super_admin')) return businesses.map((b) => b.id);
-    const ids = new Set<string>();
-    if (currentUser?.business_id) ids.add(currentUser.business_id);
-    const assignments = (currentUser as unknown as { business_assignments?: Array<{ business_id: string }> })?.business_assignments;
-    if (Array.isArray(assignments)) for (const a of assignments) if (a.business_id) ids.add(a.business_id);
-    return [...ids];
-  }, [businesses, currentUser]);
+  const myBusinessIdsCreate = useMemo(
+    () => (hasRole(currentUser, 'super_admin') ? businesses.map((b) => b.id) : accessibleBusinessIds(currentUser)),
+    [businesses, currentUser],
+  );
 
   const availableBusinesses = useMemo(() => {
     if (hasRole(currentUser, 'super_admin')) return businesses;
     if (myBusinessIdsCreate.length === 0) return [];
     return businesses.filter((b) => myBusinessIdsCreate.includes(b.id));
-  }, [businesses, myBusinessIdsCreate]);
+  }, [businesses, myBusinessIdsCreate, currentUser]);
 
   const selectedRole = roles.find((r) => r.id === roleId);
+  const isMultiBusinessRole = selectedRole?.name === 'admin';
   const needsBusiness = selectedRole && selectedRole.name !== 'super_admin';
-  const needsBranch = selectedRole && (selectedRole.name === 'manager' || selectedRole.name === 'sales_person');
+  const needsBranch = selectedRole && ['admin', 'manager', 'sales_person'].includes(selectedRole.name);
 
   const handleSave = async () => {
     if (!email.trim() || !password.trim() || !fullName.trim() || !roleId) { setError('All fields are required'); return; }
@@ -456,9 +506,18 @@ function CreateUserModal({
     const selectedRoleName = roles.find((r) => r.id === roleId)?.name;
     if (!selectedRoleName) { setError('Invalid role selected'); setSaving(false); return; }
     if (hasRole(currentUser, 'super_admin') && selectedRoleName !== 'super_admin') { setError('Super Admin can only create another Super Admin account.'); setSaving(false); return; }
+    if (isMultiBusinessRole && businessIds.length === 0) { setError('An Admin needs at least one business assignment'); return; }
     setSaving(true); setError(null);
     const { error: createError } = await supabase.functions.invoke('create-user-account', {
-      body: { p_email: email.trim(), p_password: password, p_full_name: fullName.trim(), p_role_name: selectedRoleName, p_business_id: needsBusiness ? businessId || null : null, p_branch_ids: needsBranch ? branchIds.length > 0 ? branchIds : [] : [], },
+      body: {
+        p_email: email.trim(),
+        p_password: password,
+        p_full_name: fullName.trim(),
+        p_role_name: selectedRoleName,
+        p_business_id: needsBusiness ? businessId || null : null,
+        p_business_ids: isMultiBusinessRole ? businessIds : [],
+        p_branch_ids: needsBranch ? branchIds : [],
+      },
     });
     if (createError) { setError(await edgeErrorMessage(createError, 'Could not create the user account.')); setSaving(false); return; }
     setSaving(false); onSaved();
@@ -470,30 +529,43 @@ function CreateUserModal({
         <Input label="Full Name" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="John Doe" autoFocus />
         <Input label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="john@cedoka.com" />
         <Input label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Minimum 6 characters" />
-        <Select label="Role" value={roleId} onChange={(e) => { setRoleId(e.target.value); setBusinessId(''); setBranchIds([]); }}>
+        <Select label="Role" value={roleId} onChange={(e) => { setRoleId(e.target.value); setBusinessIds([]); setBranchIds([]); }}>
           <option value="">{hasRole(currentUser, 'super_admin') && superAdminCount >= 2 ? 'Super Admin limit reached' : 'Select a role...'}</option>
           {availableRoles.map((r) => <option key={r.id} value={r.id}>{r.display_name}</option>)}
         </Select>
-        {needsBusiness && (
-          <Select label="Business Unit" value={businessId} onChange={(e) => { setBusinessId(e.target.value); setBranchIds([]); }}>
+        {isMultiBusinessRole ? (
+          <ChipSelect
+            label="Businesses this Admin oversees"
+            hint="Select one or more businesses. The Admin will only see the businesses selected here."
+            options={availableBusinesses.map((b) => ({ id: b.id, label: b.name }))}
+            selected={businessIds}
+            onChange={(ids) => {
+              setBusinessIds(ids);
+              setBranchIds((prev) => prev.filter((branchId) => {
+                const branch = branches.find((x) => x.id === branchId);
+                return branch ? ids.includes(branch.business_id) : false;
+              }));
+            }}
+            activeClass="bg-blue-600 text-white"
+            emptyMessage="No businesses are available in your scope."
+          />
+        ) : needsBusiness ? (
+          <Select label="Business Unit" value={businessId} onChange={(e) => { setBusinessIds(e.target.value ? [e.target.value] : []); setBranchIds([]); }}>
             <option value="">Select a business...</option>
             {availableBusinesses.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </Select>
+        ) : null}
+        {needsBranch && businessIds.length > 0 && (
+          <ChipSelect
+            label={isMultiBusinessRole ? 'Branches under this Admin (optional)' : 'Branch'}
+            hint={isMultiBusinessRole ? 'Leave empty to cover every branch of the selected businesses.' : undefined}
+            options={availableBranches.map((b) => ({ id: b.id, label: b.name, sublabel: businesses.find((x) => x.id === b.business_id)?.name ? `· ${businesses.find((x) => x.id === b.business_id)?.name}` : undefined }))}
+            selected={branchIds}
+            onChange={setBranchIds}
+            activeClass="bg-rose-600 text-white"
+            emptyMessage="No branches defined for the selected businesses yet."
+          />
         )}
-        {needsBranch && businessId && (
-          <div className="space-y-2">
-            <span className="cursor-pointer select-none"><span className="flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-rose-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><line x1="1" y1="8" x2="22" y2="8"></line><line x1="1" y1="12" x2="22" y2="12"></line><line x1="1" y1="16" x2="22" y2="16"></line><polyline points="8 21 12 16 16 21"></polyline></svg>Branches</span></span>
-            <div className="flex flex-wrap gap-2">
-              {availableBranches.map((b) => (
-                <div key={b.id} className={`selected-chip inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${branchIds.includes(b.id) ? 'bg-rose-100 text-rose-600' : 'border border-rose-300 text-rose-700 hover:bg-rose-50'}`} onClick={() => { setBranchIds((prev) => (branchIds.includes(b.id) ? prev.filter((id) => id !== b.id) : [...prev, b.id])); }}>
-                  {b.name}
-                </div>
-              ))}
-              {branchIds.length > 0 && (<div className="selected-chip inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium bg-rose-200 text-rose-700" onClick={() => setBranchIds([])}>Clear all</div>)}
-            </div>
-          </div>
-        )}
-        {needsBranch && businessId && (<input type="hidden" name="branch_ids" value={JSON.stringify(branchIds)} id="branch_ids_hidden" />)}
         {error && <p className="text-sm text-rose-600 px-1">{error}</p>}
         <div className="flex justify-end gap-3 pt-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>

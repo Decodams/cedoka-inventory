@@ -23,6 +23,7 @@ import {
   MapPin,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { InstallAppButton } from '@/components/InstallAppButton';
 import { supabase } from '@/lib/supabaseClient';
 import type { RoleName } from '@/types/database';
 import logo from '@/logo.jpeg';
@@ -238,9 +239,11 @@ export function AppShell({ currentPage, onPageChange, children }: AppShellProps)
             </h1>
           </div>
 
-          <div className="relative">
-            <button
-              onClick={() => setUserMenuOpen(!userMenuOpen)}
+          <div className="flex items-center gap-2">
+            <InstallAppButton />
+            <div className="relative">
+              <button
+                onClick={() => setUserMenuOpen(!userMenuOpen)}
               aria-expanded={userMenuOpen}
               aria-haspopup="menu"
               aria-label={`${user?.full_name ?? 'User'} account menu`}
@@ -301,6 +304,7 @@ export function AppShell({ currentPage, onPageChange, children }: AppShellProps)
                 </div>
               </>
             )}
+            </div>
           </div>
         </header>
 

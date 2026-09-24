@@ -124,6 +124,10 @@ export interface UserProfile {
   role?: Role;
   business?: Business;
   branch?: Branch;
+  /** Business IDs this user is explicitly assigned to (multi-business Admin oversight). */
+  business_assignment_ids?: string[];
+  /** Branch IDs this user is explicitly assigned to (multi-branch oversight). */
+  branch_assignment_ids?: string[];
 }
 
 export interface Category {
@@ -219,6 +223,60 @@ export interface InventoryTransaction {
   product?: Product;
   branch?: Branch;
   actor?: UserProfile;
+}
+
+export type AssetType = 'machinery' | 'vehicle' | 'tool' | 'equipment' | 'furniture' | 'electronics' | 'generator' | 'ware' | 'plant' | 'scrap' | 'other';
+export type AssetCondition = 'new' | 'good' | 'fair' | 'poor' | 'damaged' | 'under_repair' | 'scrapped' | 'disposed';
+export type AssetStatus = 'available' | 'in_use' | 'assigned' | 'reserved' | 'under_repair' | 'damaged' | 'missing' | 'in_transit' | 'scrapped' | 'disposed' | 'sold';
+
+export interface InventoryAsset {
+  id: string;
+  business_id: string;
+  branch_id: string | null;
+  asset_type: AssetType;
+  name: string;
+  asset_code: string | null;
+  serial_number: string | null;
+  description: string;
+  quantity: number;
+  unit: string;
+  location: string | null;
+  department: string | null;
+  custodian_id: string | null;
+  condition: AssetCondition;
+  status: AssetStatus;
+  purchase_date: string | null;
+  purchase_cost: number | null;
+  current_value: number | null;
+  supplier_id: string | null;
+  procurement_reference: string | null;
+  details: Record<string, unknown>;
+  is_active: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  business?: Business;
+  branch?: Branch;
+  custodian?: UserProfile;
+  supplier?: Supplier;
+}
+
+export interface InventoryAssetMovement {
+  id: string;
+  asset_id: string;
+  movement_type: string;
+  quantity: number;
+  from_branch_id: string | null;
+  to_branch_id: string | null;
+  from_status: AssetStatus | null;
+  to_status: AssetStatus | null;
+  from_condition: AssetCondition | null;
+  to_condition: AssetCondition | null;
+  reason: string | null;
+  reference_type: string | null;
+  reference_id: string | null;
+  actor_id: string | null;
+  created_at: string;
 }
 
 export interface WeeklyReport {

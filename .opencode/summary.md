@@ -157,3 +157,27 @@
 ## Fresh start applied (live)
 - Wiped all transactional/catalog data (products, sale items, sales, customers, categories, suppliers, measurement units, serials, inventory balances/transactions/periods, transfers, procurement, reports, issues, activities, expenses, audit log, dashboard plugins). Preserved: 4 businesses (incl. Default bucket), 6 branches, 4 users, roles/permissions, branch/unit assignments.
 - Verified live counts: products 0, sales 0, customers 0, categories 0, reports 0; businesses 4, branches 6, users 4. tsc 0, build 0.
+## Round 22 - multi-business admins + installable PWA (tsc 0, eslint 0 errors, build 0; migration pushed live)
+
+Item 1 - an Admin can now be added to as many businesses as desired and only sees those:
+- New migration 202609160001_multi_business_admin_scope.sql (PUSHED LIVE) - re-declares can_access_business/can_access_branch (assignment aware), adds my_business_ids()/my_branch_ids()/is_assigned_to_unit()/can_access_unit() SECURITY DEFINER helpers, and the missing read scoping:
+  * businesses: was `USING (true)` for every authenticated user -> now businesses.id IN (SELECT my_business_ids()). This was the root cause of an Admin seeing businesses they were never added to.
+  * branches: was `USING (true)` -> now branches.id IN (SELECT my_branch_ids()).
+  * user_profiles: any Admin could read every staff record group-wide -> now restricted to staff in the Admin's assigned businesses (Super Admin global, Manager same-branch).
+  * units / business_measurement_units / user_unit_assignments: were global for Admin -> now can_access_business scoped.
+  * can_view_user_records(): Admins were treated as global -> now bounded to their businesses.
+  * Backfilled primary business/branch into user_business_assignments/user_branch_assignments for existing Admins. Uses NOT EXISTS (not ON CONFLICT) - the live user_branch_assignments table still has the original surrogate `id` PK, which made 42P10 fail the first push attempt (rolled back cleanly, re-pushed).
+- rbac.ts: new accessibleBusinessIds()/accessibleBranchIds(); canAccessBusiness/canAccessBranch now assignment aware.
+- AuthContext.fetchUserProfile: hydrates business_assignment_ids + branch_assignment_ids (also folds in the primary business/branch) so every screen and picker knows the full oversight set.
+- UserManagementPage: EditUserModal + CreateUserModal now render a ChipSelect multi-select for "Businesses this Admin oversees" (branches filtered per selected business, cleared when a business is deselected); business assignment rows persist for Admins; role Scope form sends p_business_ids/p_branch_ids; "An Admin needs at least one business assignment" guard.
+- DashboardPage: businesses/branches are read row-scoped (no more `.limit(1)`); reports and issues use the Admin's full assigned business set.
+- New src/components/ui/ChipSelect.tsx (reusable toggle-chip multi-select).
+
+Item 2 - "Add to Home Screen" now installs the site as an app:
+- Root cause: main.tsx never registered the service worker (vite-plugin-pwa only injected a separate registerSW.js script), and the "icons" were actually 640x640 JPEGs declared as 192x192/512x512 image/png with purpose "any maskable". Chrome requires a registered SW plus manifest icons whose real size matches the declared size, so the install prompt never fired.
+- Generated real PNG icons with System.Drawing from logo.jpeg: icon-192x192.png, icon-512x512.png (purpose any), icon-maskable-192x192.png, icon-maskable-512x512.png (logo inset 12% so the Android mask does not crop it), apple-touch-icon.png (180), favicon-32x32.png.
+- vite.config.ts: injectRegister false + explicit registerSW() in main.tsx; id/display_override/orientation/lang/dir/categories; separate any vs maskable icon entries; workbox globPatterns + clientsClaim/skipWaiting/navigateFallback.
+- index.html: dropped the runtime data-URI favicon swap, added favicon + apple-touch-icon links plus apple-mobile-web-app-capable/-title/status-bar-style, mobile-web-app-capable, application-name, msapplication-TileColor.
+- New src/components/InstallAppButton.tsx: captures beforeinstallprompt (deferred so the app can show its own button), calls prompt()/userChoice, falls back to iOS Safari "Share > Add to Home Screen" instructions, hides itself once standalone or dismissed. Wired into the AppShell top bar.
+- vercel.json: no-cache + Service-Worker-Allowed:/ for sw.js, manifest Content-Type application/manifest+json.
+- Verified over `vite preview`: /, /manifest.webmanifest (application/manifest+json), /sw.js, and all 6 icons return 200; manifest parses and satisfies Chrome install criteria (name, short_name, start_url, display standalone, 192+512 "any" PNGs); sw.js precaches index.html and the maskable icon; main bundle imports workbox-window and contains the registration call.

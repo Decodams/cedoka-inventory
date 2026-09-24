@@ -27,22 +27,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const profileFetchRef = useRef<{ id: string; at: number } | null>(null);
 
   const fetchUserProfile = useCallback(async (userId: string): Promise<UserProfile | null> => {
-    const { data, error } = await supabase
-      .from('user_profiles')
-      .select(
-        `*,
+    // An Admin can be assigned to many businesses/branches, so the profile is
+    // hydrated with the assignment rows the scope helpers (and the UI pickers)
+    // rely on.
+    const [profileResult, businessAssignments, branchAssignments] = await Promise.all([
+      supabase
+        .from('user_profiles')
+        .select(
+          `*,
         role:roles(*),
         business:businesses!user_profiles_business_id_fkey(*),
         branch:branches!user_profiles_branch_id_fkey(*)`,
-      )
-      .eq('id', userId)
-      .maybeSingle();
+        )
+        .eq('id', userId)
+        .maybeSingle(),
+      supabase.from('user_business_assignments').select('business_id').eq('user_id', userId),
+      supabase.from('user_branch_assignments').select('branch_id').eq('user_id', userId),
+    ]);
 
-    if (error) {
-      console.error('Error fetching user profile:', error);
+    if (profileResult.error) {
+      console.error('Error fetching user profile:', profileResult.error);
       return null;
     }
-    return data as UserProfile;
+    if (!profileResult.data) return null;
+
+    const profile = profileResult.data as UserProfile;
+    const businessIds = (businessAssignments.data ?? []) as Array<{ business_id: string }>;
+    const branchIds = (branchAssignments.data ?? []) as Array<{ branch_id: string }>;
+    profile.business_assignment_ids = businessIds.map((row) => row.business_id).filter(Boolean);
+    profile.branch_assignment_ids = branchIds.map((row) => row.branch_id).filter(Boolean);
+    // The primary business/branch always counts as an assignment so scope
+    // pickers pre-check exactly where the user is meant to work.
+    if (profile.business_id && !profile.business_assignment_ids.includes(profile.business_id)) {
+      profile.business_assignment_ids.unshift(profile.business_id);
+    }
+    if (profile.branch_id && !profile.branch_assignment_ids.includes(profile.branch_id)) {
+      profile.branch_assignment_ids.unshift(profile.branch_id);
+    }
+    return profile;
   }, []);
 
   const refreshUser = useCallback(async () => {
