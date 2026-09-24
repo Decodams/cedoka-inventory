@@ -190,6 +190,7 @@ export interface Product {
   expiry_tracking: boolean;
   category?: Category;
   supplier?: Supplier;
+  business?: Business;
 }
 
 export interface InventoryBalance {

@@ -7,12 +7,15 @@ import { supabase } from '@/lib/supabaseClient';
 interface RawQueryResult {
   data: unknown;
   error: { message: string } | null;
+  count?: number | null;
 }
 
 interface DataState<T> {
   data: T | null;
   loading: boolean;
   error: string | null;
+  /** Total row count when the query requested `{ count: 'exact' }`, else null. */
+  count: number | null;
   refetch: () => void;
 }
 
@@ -29,6 +32,7 @@ const DEFAULT_TTL_MS = 30_000;
 
 interface CacheEntry {
   data: unknown;
+  count: number | null;
   at: number;
 }
 
@@ -58,6 +62,12 @@ function readCachedData<T>(key: string): T | null {
   return entry.data as T | null;
 }
 
+function readCachedCount(key: string): number | null {
+  const entry = queryCache.get(key);
+  if (!entry) return null;
+  return entry.count;
+}
+
 export function useSupabaseQuery<T>(
   queryFn: (() => Thenable<RawQueryResult>) | null,
   deps: unknown[] = [],
@@ -79,6 +89,10 @@ export function useSupabaseQuery<T>(
     return true;
   });
   const [error, setError] = useState<string | null>(null);
+  const [count, setCount] = useState<number | null>(() => {
+    if (queryFn === null || !cacheKey) return null;
+    return readCachedCount(cacheKey);
+  });
   const [refetchCount, setRefetchCount] = useState(0);
 
   const refetch = useCallback(() => {
@@ -94,6 +108,7 @@ export function useSupabaseQuery<T>(
     if (queryFn === null) {
       setData(null);
       setError(null);
+      setCount(null);
       setLoading(false);
       return;
     }
@@ -106,6 +121,7 @@ export function useSupabaseQuery<T>(
       const fresh = entry !== undefined && Date.now() - entry.at < ttl;
       if (entry && mounted) {
         setData(entry.data as T | null);
+        setCount(entry.count);
         setError(null);
       }
       if (fresh) {
@@ -139,7 +155,8 @@ export function useSupabaseQuery<T>(
         } else {
           setError(null);
           setData(result.data as T | null);
-          if (key) queryCache.set(key, { data: result.data, at: Date.now() });
+          setCount(typeof result.count === 'number' ? result.count : null);
+          if (key) queryCache.set(key, { data: result.data, count: typeof result.count === 'number' ? result.count : null, at: Date.now() });
         }
         setLoading(false);
       })
@@ -158,7 +175,7 @@ export function useSupabaseQuery<T>(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, refetchCount]);
 
-  return { data, loading, error, refetch };
+  return { data, loading, error, count, refetch };
 }
 
 export { supabase };

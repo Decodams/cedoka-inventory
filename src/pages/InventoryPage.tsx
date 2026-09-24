@@ -25,7 +25,8 @@ export function InventoryPage() {
   const canManage = isAtLeast(user, 'manager');
   const isBusinessLevel = isAtLeast(user, 'admin');
   const [page, setPage] = useState(1);
-  const pageSize = 30;
+  const pageSize = 10;
+  const needle = search.trim().replace(/[,%()\\]/g, ' ').trim();
 
   useEffect(() => { setPage(1); }, [search, filterBranch, tab]);
 
@@ -41,7 +42,21 @@ export function InventoryPage() {
     { cacheKey: `ref:products:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
   );
 
+  // Search by product name/SKU runs through the already-loaded product list,
+  // then narrows the server-side page query by product id (whole catalog, not
+  // just the visible page). null = no matches yet -> empty result.
+  const matchedProductIds = useMemo(() => {
+    if (!needle) return null;
+    if (!products) return null;
+    const q = needle.toLowerCase();
+    return products
+      .filter((p) => p.name.toLowerCase().includes(q) || (p.sku?.toLowerCase().includes(q) ?? false))
+      .map((p) => p.id);
+  }, [products, needle]);
+  const noProductMatches = needle && matchedProductIds !== null && matchedProductIds.length === 0;
+
   const balancesQuery = useMemo(() => {
+    if (noProductMatches) return null;
     const from = (page - 1) * pageSize;
     const to = page * pageSize - 1;
     let q = supabase
@@ -51,17 +66,19 @@ export function InventoryPage() {
       .range(from, to);
     if (!isBusinessLevel && user?.branch_id) q = q.eq('branch_id', user.branch_id);
     if (filterBranch !== 'all') q = q.eq('branch_id', filterBranch);
+    if (matchedProductIds) q = q.in('product_id', matchedProductIds);
     return q;
-  }, [isBusinessLevel, user, filterBranch, page, pageSize]);
+  }, [noProductMatches, isBusinessLevel, user, filterBranch, matchedProductIds, page, pageSize]);
 
-  const { data: balances, loading: loadingBalances, error: errorBalances, refetch: refetchBalances } =
+  const { data: balances, loading: loadingBalances, error: errorBalances, count: countBalances, refetch: refetchBalances } =
     useSupabaseQuery<InventoryBalance[]>(
-      () => balancesQuery,
+      balancesQuery ? () => balancesQuery : null,
       [balancesQuery],
-      { cacheKey: `inv:balances:${user?.id ?? 'anon'}:${user?.branch_id ?? '-'}:${filterBranch}` },
+      { cacheKey: `inv:balances:${user?.id ?? 'anon'}:${user?.branch_id ?? '-'}:${filterBranch}:${page}:${search.trim().toLowerCase()}` },
     );
 
   const ledgerQuery = useMemo(() => {
+    if (noProductMatches) return null;
     const from = (page - 1) * pageSize;
     const to = page * pageSize - 1;
     let q = supabase
@@ -71,29 +88,30 @@ export function InventoryPage() {
       .range(from, to);
     if (!isBusinessLevel && user?.branch_id) q = q.eq('branch_id', user.branch_id);
     if (filterBranch !== 'all') q = q.eq('branch_id', filterBranch);
+    if (matchedProductIds) q = q.in('product_id', matchedProductIds);
     return q;
-  }, [isBusinessLevel, user, filterBranch, page, pageSize]);
+  }, [noProductMatches, isBusinessLevel, user, filterBranch, matchedProductIds, page, pageSize]);
 
-  const { data: transactions, loading: loadingTxns, error: errorTxns, refetch: refetchTxns } =
+  const { data: transactions, loading: loadingTxns, error: errorTxns, count: countTxns, refetch: refetchTxns } =
     useSupabaseQuery<InventoryTransaction[]>(
-      () => ledgerQuery,
+      ledgerQuery ? () => ledgerQuery : null,
       [ledgerQuery],
-      { cacheKey: `inv:ledger:${user?.id ?? 'anon'}:${user?.branch_id ?? '-'}:${filterBranch}` },
+      { cacheKey: `inv:ledger:${user?.id ?? 'anon'}:${user?.branch_id ?? '-'}:${filterBranch}:${page}:${search.trim().toLowerCase()}` },
     );
 
   const filteredBalances = useMemo(() => {
     if (!balances) return [];
-    if (!search) return balances;
-    const q = search.toLowerCase();
+    if (!needle) return balances;
+    const q = needle.toLowerCase();
     return balances.filter((b) => b.product?.name?.toLowerCase().includes(q) || (b.product?.sku?.toLowerCase().includes(q) ?? false));
-  }, [balances, search]);
+  }, [balances, needle]);
 
   const filteredTxns = useMemo(() => {
     if (!transactions) return [];
-    if (!search) return transactions;
-    const q = search.toLowerCase();
+    if (!needle) return transactions;
+    const q = needle.toLowerCase();
     return transactions.filter((t) => t.product?.name?.toLowerCase().includes(q) || (t.product?.sku?.toLowerCase().includes(q) ?? false));
-  }, [transactions, search]);
+  }, [transactions, needle]);
 
   const assetsQuery = useMemo(() => {
     const from = (page - 1) * pageSize;
@@ -101,17 +119,18 @@ export function InventoryPage() {
     let q = supabase.from('inventory_assets').select(`*, branch:branches(id,name), custodian:user_profiles!custodian_id(full_name)`, { count: 'exact' }).order('updated_at', { ascending: false }).range(from, to);
     if (!isBusinessLevel && user?.branch_id) q = q.eq('branch_id', user.branch_id);
     if (filterBranch !== 'all') q = q.eq('branch_id', filterBranch);
+    if (needle) q = q.or(`name.ilike.%${needle}%,asset_code.ilike.%${needle}%,serial_number.ilike.%${needle}%,asset_type.ilike.%${needle}%`);
     return q;
-  }, [isBusinessLevel, user, filterBranch, page, pageSize]);
-  const { data: assets, loading: loadingAssets, error: errorAssets, refetch: refetchAssets } = useSupabaseQuery<InventoryAsset[]>(() => assetsQuery, [assetsQuery], { cacheKey: `inv:assets:${user?.id ?? 'anon'}:${user?.branch_id ?? '-'}:${filterBranch}` });
+  }, [isBusinessLevel, user, filterBranch, needle, page, pageSize]);
+  const { data: assets, loading: loadingAssets, error: errorAssets, count: countAssets, refetch: refetchAssets } = useSupabaseQuery<InventoryAsset[]>(() => assetsQuery, [assetsQuery], { cacheKey: `inv:assets:${user?.id ?? 'anon'}:${user?.branch_id ?? '-'}:${filterBranch}:${page}:${search.trim().toLowerCase()}` });
   const filteredAssets = useMemo(() => {
     if (!assets) return [];
-    if (!search) return assets;
-    const q = search.toLowerCase();
+    if (!needle) return assets;
+    const q = needle.toLowerCase();
     return assets.filter((a) => a.name.toLowerCase().includes(q) || (a.asset_code?.toLowerCase().includes(q) ?? false) || (a.serial_number?.toLowerCase().includes(q) ?? false) || a.asset_type.toLowerCase().includes(q));
-  }, [assets, search]);
+  }, [assets, needle]);
 
-  const totalAssets = assets?.length ?? 0;
+  const totalAssets = countAssets ?? assets?.length ?? 0;
   const availableAssets = assets?.filter((a) => a.status === 'available').length ?? 0;
   const inUseAssets = assets?.filter((a) => a.status === 'in_use' || a.status === 'assigned').length ?? 0;
 
@@ -145,7 +164,7 @@ export function InventoryPage() {
 
       {/* Overview metrics */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="bg-white rounded-xl border border-slate-200 p-4"><p className="text-xs text-slate-400">Stock Products</p><p className="text-lg font-bold text-slate-900">{balances?.length ?? 0}</p><p className="text-xs text-slate-500">Tracked balances</p></div>
+        <div className="bg-white rounded-xl border border-slate-200 p-4"><p className="text-xs text-slate-400">Stock Products</p><p className="text-lg font-bold text-slate-900">{countBalances ?? balances?.length ?? 0}</p><p className="text-xs text-slate-500">Tracked balances</p></div>
         <div className="bg-white rounded-xl border border-slate-200 p-4"><p className="text-xs text-slate-400">General Assets</p><p className="text-lg font-bold text-slate-900">{totalAssets}</p><p className="text-xs text-emerald-600">{availableAssets} available · {inUseAssets} in use</p></div>
         <div className="bg-white rounded-xl border border-slate-200 p-4"><p className="text-xs text-slate-400">Available Assets</p><p className="text-lg font-bold text-emerald-600">{availableAssets}</p><p className="text-xs text-slate-500">Ready for use</p></div>
         <div className="bg-white rounded-xl border border-slate-200 p-4"><p className="text-xs text-slate-400">In Use</p><p className="text-lg font-bold text-blue-600">{inUseAssets}</p><p className="text-xs text-slate-500">Assigned / in use</p></div>
@@ -234,9 +253,19 @@ export function InventoryPage() {
                 </tbody>
               </table>
             </div>
-            <div className="p-4 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-1 text-sm text-slate-500 text-center sm:text-left">
-              <span>Showing {filteredAssets.length} assets</span>
-              <span>Page {page} of {Math.ceil(filteredAssets.length / pageSize)}</span>
+            <div className="p-4 border-t border-slate-100">
+              <div className="flex flex-col sm:flex-row justify-between items-center gap-1 text-sm text-slate-500 text-center sm:text-left">
+                <span>Showing {filteredAssets.length === 0 ? 0 : (page - 1) * pageSize + 1} to {(page - 1) * pageSize + filteredAssets.length} of {Math.max(countAssets ?? 0, filteredAssets.length)} assets</span>
+                <span>Page {page} of {Math.max(1, Math.ceil(Math.max(countAssets ?? 0, filteredAssets.length) / pageSize))}</span>
+              </div>
+              <div className="flex gap-2 justify-center mt-2">
+                <Button variant="ghost" onClick={()=>{setPage(p=> Math.max(1, p - 1));}} disabled={page===1}>
+                  Prev
+                </Button>
+                <Button variant="ghost" onClick={()=>{setPage(p=> Math.min(Math.max(1, Math.ceil(Math.max(countAssets ?? 0, filteredAssets.length) / pageSize)), p + 1));}} disabled={page>=Math.max(1, Math.ceil(Math.max(countAssets ?? 0, filteredAssets.length) / pageSize))}>
+                  Next
+                </Button>
+              </div>
             </div>
           </div>
         ) : (
@@ -304,14 +333,14 @@ export function InventoryPage() {
             </div>
             <div className="p-4 border-t border-slate-100">
               <div className="flex flex-col sm:flex-row justify-between items-center gap-1 text-sm text-slate-500 text-center sm:text-left">
-                <span>Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, filteredBalances.length)} of {filteredBalances.length} balances</span>
-                <span>Page {page} of {Math.ceil(filteredBalances.length / pageSize)}</span>
+                <span>Showing {filteredBalances.length === 0 ? 0 : (page - 1) * pageSize + 1} to {(page - 1) * pageSize + filteredBalances.length} of {Math.max(countBalances ?? 0, filteredBalances.length)} balances</span>
+                <span>Page {page} of {Math.max(1, Math.ceil(Math.max(countBalances ?? 0, filteredBalances.length) / pageSize))}</span>
               </div>
               <div className="flex gap-2 justify-center">
                 <Button variant="ghost" onClick={()=>{setPage(p=> Math.max(1, p - 1));}} disabled={page===1}>
                   Prev
                 </Button>
-                <Button variant="ghost" onClick={()=>{setPage(p=> Math.min(Math.ceil(filteredBalances.length / pageSize), p + 1));}} disabled={page>=Math.ceil(filteredBalances.length / pageSize)}>
+                <Button variant="ghost" onClick={()=>{setPage(p=> Math.min(Math.max(1, Math.ceil(Math.max(countBalances ?? 0, filteredBalances.length) / pageSize)), p + 1));}} disabled={page>=Math.max(1, Math.ceil(Math.max(countBalances ?? 0, filteredBalances.length) / pageSize))}>
                   Next
                 </Button>
               </div>
@@ -371,14 +400,14 @@ export function InventoryPage() {
             </div>
             <div className="p-4 border-t border-slate-100">
               <div className="flex flex-col sm:flex-row justify-between items-center gap-1 text-sm text-slate-500 text-center sm:text-left">
-                <span>Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, filteredTxns.length)} of {filteredTxns.length} movements</span>
-                <span>Page {page} of {Math.ceil(filteredTxns.length / pageSize)}</span>
+                <span>Showing {filteredTxns.length === 0 ? 0 : (page - 1) * pageSize + 1} to {(page - 1) * pageSize + filteredTxns.length} of {Math.max(countTxns ?? 0, filteredTxns.length)} movements</span>
+                <span>Page {page} of {Math.max(1, Math.ceil(Math.max(countTxns ?? 0, filteredTxns.length) / pageSize))}</span>
               </div>
               <div className="flex gap-2 justify-center">
                 <Button variant="ghost" onClick={()=>{setPage(p=> Math.max(1, p - 1));}} disabled={page===1}>
                   Prev
                 </Button>
-                <Button variant="ghost" onClick={()=>{setPage(p=> Math.min(Math.ceil(filteredTxns.length / pageSize), p + 1));}} disabled={page>=Math.ceil(filteredTxns.length / pageSize)}>
+                <Button variant="ghost" onClick={()=>{setPage(p=> Math.min(Math.max(1, Math.ceil(Math.max(countTxns ?? 0, filteredTxns.length) / pageSize)), p + 1));}} disabled={page>=Math.max(1, Math.ceil(Math.max(countTxns ?? 0, filteredTxns.length) / pageSize))}>
                   Next
                 </Button>
               </div>

@@ -1,15 +1,20 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { FileText, Search } from 'lucide-react';
 import { useSupabaseQuery, supabase } from '@/hooks/useSupabaseQuery';
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States';
 import { Select } from '@/components/ui/Form';
 import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
 import { formatDateTime } from '@/lib/dateUtils';
 import type { AuditLogEntry } from '@/types/database';
 
 export function AuditLogPage() {
   const [search, setSearch] = useState('');
   const [filterAction, setFilterAction] = useState('all');
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+
+  useEffect(() => { setPage(1); }, [search, filterAction]);
 
   const { data: logs, loading, error, refetch } = useSupabaseQuery<AuditLogEntry[]>(
     () =>
@@ -41,6 +46,9 @@ export function AuditLogPage() {
     if (!logs) return [];
     return [...new Set(logs.map((l) => l.action))].sort();
   }, [logs]);
+
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
 
   if (loading) return <LoadingState />;
   if (error) return <ErrorState message="Could not load audit log." onRetry={refetch} />;
@@ -83,7 +91,7 @@ export function AuditLogPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {filtered.map((log) => (
+                {pageRows.map((log) => (
                   <tr key={log.id} className="hover:bg-slate-50/50">
                     <td className="px-3 py-3 sm:px-5 text-xs text-slate-400 whitespace-nowrap">{formatDateTime(log.created_at)}</td>
                     <td className="px-3 py-3 sm:px-5 text-sm text-slate-700">{log.actor?.full_name ?? 'System'}</td>
@@ -98,6 +106,16 @@ export function AuditLogPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+          <div className="p-4 border-t border-slate-100">
+            <div className="flex flex-col sm:flex-row justify-between items-center gap-1 text-sm text-slate-500 text-center sm:text-left">
+              <span>Showing {filtered.length === 0 ? 0 : (page - 1) * pageSize + 1} to {(page - 1) * pageSize + pageRows.length} of {filtered.length} entries</span>
+              <span>Page {page} of {totalPages}</span>
+            </div>
+            <div className="flex gap-2 justify-center mt-2">
+              <Button variant="ghost" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>Prev</Button>
+              <Button variant="ghost" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>Next</Button>
+            </div>
           </div>
         </div>
       ) : (

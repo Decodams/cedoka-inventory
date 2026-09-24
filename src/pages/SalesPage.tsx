@@ -26,20 +26,40 @@ export function SalesPage() {
   const canViewDetails = isAtLeast(user, 'manager');
   const isExecutive = hasRole(user, 'super_admin');
   const businessLevel = isAtLeast(user, 'admin');
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+  useEffect(() => { setPage(1); }, [search, status]);
+  const { data: myBusinessAssignments } = useSupabaseQuery<Array<{ business_id: string }>>(
+    user?.id ? () => supabase.from('user_business_assignments').select('business_id').eq('user_id', user?.id ?? '') : null,
+    [user?.id],
+    { cacheKey: `assign:biz:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
+  );
+  const accessibleBusinessIds = useMemo(() => {
+    if (isExecutive || !businessLevel) return null;
+    const set = new Set<string>();
+    if (user?.business_id) set.add(user.business_id);
+    for (const a of myBusinessAssignments ?? []) if (a.business_id) set.add(a.business_id);
+    return [...set];
+  }, [isExecutive, businessLevel, user?.business_id, myBusinessAssignments]);
   const { downloadReceipt, printReceipt } = useReceiptPDF();
   const { data: branches } = useSupabaseQuery<Branch[]>(() => supabase.from('branches').select('*').eq('is_active', true).order('name'), [], { cacheKey: `sales-branches:${user?.id}`, ttlMs: 60_000 });
   const { data: sales, loading, error, refetch } = useSupabaseQuery<DailySale[]>(() => {
     let query = supabase.from('daily_sales').select('*, product:products(id,name), items:sale_items(id,quantity,unit_price,discount_value,product:products(id,name)), branch:branches(id,name)', { count: 'exact' }).order('created_at', { ascending: false }).limit(100);
-    if (!isExecutive && businessLevel && user?.business_id) query = query.eq('business_id', user.business_id);
+    if (!isExecutive && businessLevel) {
+      if (accessibleBusinessIds && accessibleBusinessIds.length > 0) query = query.in('business_id', accessibleBusinessIds);
+      else if (user?.business_id) query = query.eq('business_id', user.business_id);
+    }
     if (!businessLevel && user?.branch_id) query = query.eq('branch_id', user.branch_id);
     if (status !== 'all') query = query.eq('status', status);
     return query;
-  }, [user?.id, user?.business_id, user?.branch_id, isExecutive, businessLevel, status], { cacheKey: `sales:${user?.id}:${status}` });
+  }, [user?.id, user?.business_id, user?.branch_id, isExecutive, businessLevel, status, accessibleBusinessIds], { cacheKey: `sales:${user?.id}:${status}:${(accessibleBusinessIds ?? []).join(',')}` });
   const filtered = useMemo(() => (sales ?? []).filter((sale) => {
     const query = search.trim().toLowerCase();
     if (!query) return true;
     return sale.customer_name?.toLowerCase().includes(query) || sale.product?.name.toLowerCase().includes(query) || sale.items?.some((item) => item.product?.name.toLowerCase().includes(query));
   }), [sales, search]);
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const completed = filtered.filter((sale) => sale.status === 'completed').reduce((sum, sale) => sum + Number(sale.unit_price) * sale.quantity - Number(sale.discount_value), 0);
   if (loading) return <LoadingState />;
   if (error) return <ErrorState message="Could not load sales." onRetry={refetch} />;
@@ -62,7 +82,7 @@ export function SalesPage() {
       </Select>
     </div>
     {receiptError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{receiptError}</p>}
-    {filtered.length ? <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white"><div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b bg-slate-50 text-left text-xs text-slate-500"><th className="px-3 py-3 sm:px-4">Date</th><th className="px-3 py-3 sm:px-4">Sale</th><th className="px-3 py-3 text-right">Total</th><th className="px-3 py-3">Status</th><th /></tr></thead><tbody className="divide-y">{filtered.map((sale) => <tr key={sale.id} onClick={canViewDetails ? () => setViewSaleId(sale.id) : undefined} title={canViewDetails ? 'View sale details' : undefined} className={canViewDetails ? 'cursor-pointer' : undefined}><td className="px-3 py-3 sm:px-4 text-slate-500">{formatDate(sale.sale_date)}</td><td className="px-3 py-3 sm:px-4"><p className="font-medium">{sale.items?.length ? `${sale.items.length} item${sale.items.length === 1 ? '' : 's'}` : sale.product?.name || 'Sale'}</p><p className="text-xs text-slate-400">{sale.customer_name || 'Walk-in'} · {sale.branch?.name || 'Branch'}</p></td><td className="px-3 py-3 text-right font-semibold">{formatCurrency(Number(sale.unit_price) * sale.quantity - Number(sale.discount_value))}</td><td className="px-3 py-3"><Badge className={SALE_STATUS_STYLES[sale.status]}>{SALE_STATUS_LABELS[sale.status]}</Badge></td><td className="px-3 py-3"><span className="inline-flex items-center gap-1"><button className="text-slate-400 hover:text-slate-900" title="Download receipt" onClick={(e) => { e.stopPropagation(); setReceiptError(null); downloadReceipt(sale.id).catch((err: unknown) => setReceiptError(err instanceof Error ? err.message : 'Could not download the receipt.')); }}><Receipt size={16} /></button><button className="text-slate-400 hover:text-slate-900" title="Print receipt" onClick={(e) => { e.stopPropagation(); setReceiptError(null); printReceipt(sale.id).catch((err: unknown) => setReceiptError(err instanceof Error ? err.message : 'Could not print the receipt.')); }}><Printer size={16} /></button></span></td></tr>)}</tbody></table></div></div> : <EmptyState icon={<DollarSign size={32} />} title="No sales recorded" description="Sales will appear here once completed." action={<Button onClick={() => setShowModal(true)}><Plus size={18} />Record Sale</Button>} />}
+    {filtered.length ? <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white"><div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b bg-slate-50 text-left text-xs text-slate-500"><th className="px-3 py-3 sm:px-4">Date</th><th className="px-3 py-3 sm:px-4">Sale</th><th className="px-3 py-3 text-right">Total</th><th className="px-3 py-3">Status</th><th /></tr></thead><tbody className="divide-y">{pageRows.map((sale) => <tr key={sale.id} onClick={canViewDetails ? () => setViewSaleId(sale.id) : undefined} title={canViewDetails ? 'View sale details' : undefined} className={canViewDetails ? 'cursor-pointer' : undefined}><td className="px-3 py-3 sm:px-4 text-slate-500">{formatDate(sale.sale_date)}</td><td className="px-3 py-3 sm:px-4"><p className="font-medium">{sale.items?.length ? `${sale.items.length} item${sale.items.length === 1 ? '' : 's'}` : sale.product?.name || 'Sale'}</p><p className="text-xs text-slate-400">{sale.customer_name || 'Walk-in'} · {sale.branch?.name || 'Branch'}</p></td><td className="px-3 py-3 text-right font-semibold">{formatCurrency(Number(sale.unit_price) * sale.quantity - Number(sale.discount_value))}</td><td className="px-3 py-3"><Badge className={SALE_STATUS_STYLES[sale.status]}>{SALE_STATUS_LABELS[sale.status]}</Badge></td><td className="px-3 py-3"><span className="inline-flex items-center gap-1"><button className="text-slate-400 hover:text-slate-900" title="Download receipt" onClick={(e) => { e.stopPropagation(); setReceiptError(null); downloadReceipt(sale.id).catch((err: unknown) => setReceiptError(err instanceof Error ? err.message : 'Could not download the receipt.')); }}><Receipt size={16} /></button><button className="text-slate-400 hover:text-slate-900" title="Print receipt" onClick={(e) => { e.stopPropagation(); setReceiptError(null); printReceipt(sale.id).catch((err: unknown) => setReceiptError(err instanceof Error ? err.message : 'Could not print the receipt.')); }}><Printer size={16} /></button></span></td></tr>)}</tbody></table></div><div className="border-t px-4 py-3 flex flex-col sm:flex-row justify-between items-center gap-2 text-sm text-slate-500"><span>Showing {filtered.length === 0 ? 0 : (page - 1) * pageSize + 1} to {(page - 1) * pageSize + pageRows.length} of {filtered.length} sales</span><span className="flex items-center gap-2"><Button variant="ghost" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>Prev</Button>Page {page} of {totalPages}<Button variant="ghost" size="sm" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>Next</Button></span></div></div> : <EmptyState icon={<DollarSign size={32} />} title="No sales recorded" description="Sales will appear here once completed." action={<Button onClick={() => setShowModal(true)}><Plus size={18} />Record Sale</Button>} />}
     {showModal && <SaleModal branches={branches ?? []} currentUser={user} onClose={() => setShowModal(false)} onSaved={() => { setShowModal(false); refetch(); }} />}
     {viewSaleId && <SaleDetailModal saleId={viewSaleId} onClose={() => setViewSaleId(null)} />}
   </div>;

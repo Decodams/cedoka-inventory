@@ -19,7 +19,8 @@ export function CustomersPage() {
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Customer | null>(null);
   const [page, setPage] = useState(1);
-  const pageSize = 30;
+  const pageSize = 10;
+  const needle = search.trim().replace(/[,%()\\]/g, ' ').trim();
 
   useEffect(() => { setPage(1); }, [search, filterBusiness, user?.business_id]);
 
@@ -28,7 +29,7 @@ export function CustomersPage() {
     [],
     { cacheKey: `ref:businesses:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
   );
-  const { data: customers, loading, error, refetch } = useSupabaseQuery<Customer[]>(
+  const { data: customers, loading, error, count, refetch } = useSupabaseQuery<Customer[]>(
     () => {
       const from = (page - 1) * pageSize;
       const to = page * pageSize - 1;
@@ -39,22 +40,24 @@ export function CustomersPage() {
         .range(from, to);
       if (!isExecutive && user?.business_id) q = q.eq('business_id', user.business_id);
       if (filterBusiness !== 'all') q = q.eq('business_id', filterBusiness);
+      if (needle) q = q.or(`name.ilike.%${needle}%,phone.ilike.%${needle}%,address.ilike.%${needle}%`);
       return q;
     },
-    [filterBusiness, user?.business_id, isExecutive, page, pageSize],
+    [filterBusiness, user?.business_id, isExecutive, page, pageSize, needle],
+    { cacheKey: `customers:${user?.id ?? 'anon'}:${user?.business_id ?? '-'}:${filterBusiness}:${page}:${needle.toLowerCase()}` },
   );
 
   const filtered = useMemo(() => {
     if (!customers) return [];
-    if (!search) return customers;
-    const q = search.toLowerCase();
+    if (!needle) return customers;
+    const q = needle.toLowerCase();
     return customers.filter(
       (c) =>
         c.name.toLowerCase().includes(q) ||
         (c.phone?.includes(q) ?? false) ||
         (c.address?.toLowerCase().includes(q) ?? false),
     );
-  }, [customers, search]);
+  }, [customers, needle]);
 
   if (loading) return <LoadingState />;
   if (error) return <ErrorState message="Could not load customers." onRetry={refetch} />;
@@ -172,12 +175,12 @@ export function CustomersPage() {
             </div>
             <div className="p-4 border-t border-slate-100">
               <div className="flex flex-col sm:flex-row justify-between items-center gap-1 text-sm text-slate-500 text-center sm:text-left">
-                <span>Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, filtered.length)} of {filtered.length} customers</span>
-                <span>Page {page} of {Math.ceil(filtered.length / pageSize)}</span>
+                <span>Showing {filtered.length === 0 ? 0 : (page - 1) * pageSize + 1} to {(page - 1) * pageSize + filtered.length} of {Math.max(count ?? 0, filtered.length)} customers</span>
+                <span>Page {page} of {Math.max(1, Math.ceil(Math.max(count ?? 0, filtered.length) / pageSize))}</span>
               </div>
               <div className="flex gap-2 justify-center">
                 <Button variant="ghost" onClick={() => {setPage(p => Math.max(1, p - 1));}} disabled={page === 1}>Prev</Button>
-                <Button variant="ghost" onClick={() => {setPage(p => Math.min(Math.ceil(filtered.length / pageSize), p + 1));}} disabled={page >= Math.ceil(filtered.length / pageSize)}>Next</Button>
+                <Button variant="ghost" onClick={() => {setPage(p => Math.min(Math.max(1, Math.ceil(Math.max(count ?? 0, filtered.length) / pageSize)), p + 1));}} disabled={page >= Math.max(1, Math.ceil(Math.max(count ?? 0, filtered.length) / pageSize))}>Next</Button>
               </div>
             </div>
           </div>

@@ -26,7 +26,8 @@ export function UserManagementPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
-  const pageSize = 30;
+  const pageSize = 10;
+  const needle = search.trim().replace(/[,%()\\]/g, ' ').trim();
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
   const [deletingUser, setDeletingUser] = useState<UserProfile | null>(null);
   const [showRoles, setShowRoles] = useState(false);
@@ -52,22 +53,52 @@ export function UserManagementPage() {
     setDeletingUser(null); refetch();
   };
 
-  const { data: profiles, loading, error, refetch } = useSupabaseQuery<UserProfile[]>(
-    () => { const from = (page - 1) * pageSize; const to = page * pageSize - 1; return supabase.from('user_profiles').select(`*, role:roles(id,name,display_name), business:businesses!user_profiles_business_id_fkey(id,name), branch:branches!user_profiles_branch_id_fkey(id,name)`, { count: 'exact' }).order('created_at', { ascending: false }).range(from, to); },
-    [page, pageSize], { cacheKey: `users:list:${user?.id ?? 'anon'}:${page}:${pageSize}` }
-  );
   const { data: businesses } = useSupabaseQuery<Business[]>(() => supabase.from('businesses').select('*').eq('is_active', true).order('name'), [], { cacheKey: `ref:businesses:${user?.id ?? 'anon'}`, ttlMs: 60_000 });
   const { data: branches } = useSupabaseQuery<Branch[]>(() => supabase.from('branches').select('*').eq('is_active', true).order('name'), [], { cacheKey: `ref:branches:${user?.id ?? 'anon'}`, ttlMs: 60_000 });
   const { data: orgUnits } = useSupabaseQuery<Unit[]>(() => supabase.from('units').select('*').eq('is_active', true).order('name'), [], { cacheKey: `ref:units:${user?.id ?? 'anon'}`, ttlMs: 60_000 });
+
+  // Branch/business name search resolves to ids from the loaded refs so the
+  // role + search filters run server-side across the whole directory.
+  const matchedBranchIds = useMemo(() => {
+    if (!needle || !branches) return [];
+    const q = needle.toLowerCase();
+    return branches.filter((b) => b.name.toLowerCase().includes(q)).map((b) => b.id);
+  }, [branches, needle]);
+  const matchedBusinessIds = useMemo(() => {
+    if (!needle || !businesses) return [];
+    const q = needle.toLowerCase();
+    return businesses.filter((b) => b.name.toLowerCase().includes(q)).map((b) => b.id);
+  }, [businesses, needle]);
+
+  const { data: profiles, loading, error, count, refetch } = useSupabaseQuery<UserProfile[]>(
+    () => {
+      const from = (page - 1) * pageSize;
+      const to = page * pageSize - 1;
+      // !inner join when a role filter is active so PostgREST filters the
+      // users themselves, not just the embedded role rows.
+      const roleSel = filterRole !== 'all' ? 'role:roles!inner(id,name,display_name)' : 'role:roles(id,name,display_name)';
+      let q = supabase.from('user_profiles').select(`*, ${roleSel}, business:businesses!user_profiles_business_id_fkey(id,name), branch:branches!user_profiles_branch_id_fkey(id,name)`, { count: 'exact' }).order('created_at', { ascending: false }).range(from, to);
+      if (filterRole !== 'all') q = q.eq('role.name', filterRole);
+      if (needle) {
+        const clauses = [`full_name.ilike.%${needle}%`, `email.ilike.%${needle}%`];
+        if (matchedBranchIds.length > 0) clauses.push(`branch_id.in.(${matchedBranchIds.join(',')})`);
+        if (matchedBusinessIds.length > 0) clauses.push(`business_id.in.(${matchedBusinessIds.join(',')})`);
+        q = q.or(clauses.join(','));
+      }
+      return q;
+    },
+    [page, pageSize, needle, filterRole, matchedBranchIds, matchedBusinessIds],
+    { cacheKey: `users:list:${user?.id ?? 'anon'}:${page}:${pageSize}:${filterRole}:${needle.toLowerCase()}` },
+  );
 
   const filteredProfiles = useMemo(() => {
     if (!profiles) return [];
     return profiles.filter((p) => {
       if (filterRole !== 'all' && p.role?.name !== filterRole) return false;
-      if (search) { const q = search.toLowerCase(); return p.full_name.toLowerCase().includes(q) || p.email.toLowerCase().includes(q) || (p.branch?.name?.toLowerCase().includes(q) ?? false) || (p.business?.name?.toLowerCase().includes(q) ?? false); }
+      if (needle) { const q = needle.toLowerCase(); return p.full_name.toLowerCase().includes(q) || p.email.toLowerCase().includes(q) || (p.branch?.name?.toLowerCase().includes(q) ?? false) || (p.business?.name?.toLowerCase().includes(q) ?? false); }
       return true;
     });
-  }, [profiles, search, filterRole]);
+  }, [profiles, needle, filterRole]);
 
   if (loading) return <LoadingState />;
   if (error) return <ErrorState message="Could not load users." onRetry={refetch} />;
@@ -183,13 +214,13 @@ export function UserManagementPage() {
           </div>
           <div className="p-4 border-t border-slate-100">
             <div className="flex flex-col sm:flex-row justify-between items-center gap-1 text-sm text-slate-500 text-center sm:text-left">
-              <span>Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, filteredProfiles.length)} of {filteredProfiles.length} users</span>
-              <span>Page {page} of {Math.ceil(filteredProfiles.length / pageSize)}</span>
-            </div>
-            <div className="flex gap-2 justify-center">
-              <Button variant="ghost" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>Prev</Button>
-              <Button variant="ghost" onClick={() => setPage(p => Math.min(Math.ceil(filteredProfiles.length / pageSize), p + 1))} disabled={page >= Math.ceil(filteredProfiles.length / pageSize)}>Next</Button>
-            </div>
+                <span>Showing {filteredProfiles.length === 0 ? 0 : (page - 1) * pageSize + 1} to {(page - 1) * pageSize + filteredProfiles.length} of {Math.max(count ?? 0, filteredProfiles.length)} users</span>
+                <span>Page {page} of {Math.max(1, Math.ceil(Math.max(count ?? 0, filteredProfiles.length) / pageSize))}</span>
+              </div>
+              <div className="flex gap-2 justify-center">
+                <Button variant="ghost" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>Prev</Button>
+                <Button variant="ghost" onClick={() => setPage(p => Math.min(Math.max(1, Math.ceil(Math.max(count ?? 0, filteredProfiles.length) / pageSize)), p + 1))} disabled={page >= Math.max(1, Math.ceil(Math.max(count ?? 0, filteredProfiles.length) / pageSize))}>Next</Button>
+              </div>
           </div>
         </div>
       ) : (

@@ -21,7 +21,9 @@ export function TransfersPage() {
   const [viewTransfer, setViewTransfer] = useState<StockTransfer | null>(null);
   const canManage = isAtLeast(user, 'manager');
   const [page, setPage] = useState(1);
-  const pageSize = 20;
+  const pageSize = 10;
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => { setPage(1); }, [search, filterStatus]);
 
@@ -43,7 +45,7 @@ export function TransfersPage() {
     return q;
   }, [filterStatus, page, pageSize]);
 
-  const { data: transfers, loading, error, refetch } = useSupabaseQuery<StockTransfer[]>(
+  const { data: transfers, loading, error, count, refetch } = useSupabaseQuery<StockTransfer[]>(
     () => transfersQuery,
     [transfersQuery],
   );
@@ -58,32 +60,77 @@ export function TransfersPage() {
   }, [transfers, search]);
 
   const advanceStatus = async (t: StockTransfer, next: TransferStatus, extra: Record<string, unknown> = {}) => {
-    // On dispatch: deduct from source branch; on receive: add to dest. Uses atomic RPC per item.
-    const { data: items } = await supabase.from('stock_transfer_items').select('*').eq('transfer_id', t.id);
-    if (next === 'dispatched' && items?.length) {
-      for (const it of items) {
-        const { error } = await supabase.rpc('record_inventory_movement', { p_product_id: it.product_id, p_branch_id: t.from_branch_id, p_movement_type: 'transfer_out', p_quantity: it.quantity, p_reason: `Transfer ${t.transfer_number ?? t.id.slice(0,8)} dispatched to ${(t.to_branch as unknown as Branch)?.name ?? ''}`, p_reference_type: 'stock_transfer', p_reference_id: t.id });
-        if (error) { console.error(error); }
+    // On dispatch: deduct from source branch; on receive: add to dest. Any RPC
+    // failure now aborts the status change and surfaces inline — no more silent
+    // desync. Already-moved items are skipped so retries never double-move stock.
+    setSyncError(null);
+    setBusyId(t.id);
+    try {
+      const { data: items, error: itemsErr } = await supabase
+        .from('stock_transfer_items')
+        .select('*, product:products(name)')
+        .eq('transfer_id', t.id);
+      if (itemsErr) {
+        setSyncError(`Could not load transfer items: ${itemsErr.message}`);
+        return;
       }
-    }
-    if (next === 'received' && items?.length) {
-      for (const it of items) {
-        await supabase.rpc('record_inventory_movement', { p_product_id: it.product_id, p_branch_id: t.to_branch_id, p_movement_type: 'transfer_in', p_quantity: it.quantity, p_reason: `Transfer ${t.transfer_number ?? t.id.slice(0,8)} received from ${(t.from_branch as unknown as Branch)?.name ?? ''}`, p_reference_type: 'stock_transfer', p_reference_id: t.id });
-      }
-      // if received_quantity differs, use that if set
-      for (const it of items) {
-        if (it.received_quantity !== it.quantity) {
-          await supabase.from('stock_transfer_items').update({ received_quantity: it.quantity }).eq('id', it.id);
+      const failures: string[] = [];
+      if ((next === 'dispatched' || next === 'received') && items?.length) {
+        const movementType = next === 'dispatched' ? 'transfer_out' : 'transfer_in';
+        const branchId = next === 'dispatched' ? t.from_branch_id : t.to_branch_id;
+        const { data: existing, error: existingErr } = await supabase
+          .from('inventory_transactions')
+          .select('product_id')
+          .eq('reference_type', 'stock_transfer')
+          .eq('reference_id', t.id)
+          .eq('movement_type', movementType);
+        if (existingErr) {
+          setSyncError(`Could not verify previous stock movements: ${existingErr.message}`);
+          return;
+        }
+        const alreadyMoved = new Set((existing ?? []).map((r) => r.product_id));
+        const label = next === 'dispatched'
+          ? `Transfer ${t.transfer_number ?? t.id.slice(0, 8)} dispatched to ${(t.to_branch as unknown as Branch)?.name ?? ''}`
+          : `Transfer ${t.transfer_number ?? t.id.slice(0, 8)} received from ${(t.from_branch as unknown as Branch)?.name ?? ''}`;
+        for (const it of items as Array<{ product_id: string; quantity: number; product?: { name: string } | null }>) {
+          if (alreadyMoved.has(it.product_id)) continue;
+          const { error } = await supabase.rpc('record_inventory_movement', {
+            p_product_id: it.product_id,
+            p_branch_id: branchId,
+            p_movement_type: movementType,
+            p_quantity: it.quantity,
+            p_reason: label,
+            p_reference_type: 'stock_transfer',
+            p_reference_id: t.id,
+          });
+          if (error) failures.push(`${it.product?.name ?? it.product_id}: ${error.message}`);
+        }
+        if (next === 'received' && failures.length === 0) {
+          for (const it of items as Array<{ id: string; quantity: number; received_quantity: number | null }>) {
+            if (it.received_quantity !== it.quantity) {
+              await supabase.from('stock_transfer_items').update({ received_quantity: it.quantity }).eq('id', it.id);
+            }
+          }
         }
       }
+      if (failures.length > 0) {
+        setSyncError(`Stock sync failed — status was NOT advanced. ${failures.join(' | ')}. Fix the cause and retry; items already moved are skipped.`);
+        return;
+      }
+      const { error: updErr } = await supabase.from('stock_transfers').update({ status: next, ...extra }).eq('id', t.id);
+      if (updErr) {
+        setSyncError(`Stock synced, but the status could not be updated: ${updErr.message}`);
+        return;
+      }
+      await logAudit(`transfer.${next}`, 'stock_transfers', t.id, {
+        from_branch_id: t.from_branch_id,
+        to_branch_id: t.to_branch_id,
+        transfer_number: t.transfer_number ?? null,
+      });
+      refetch();
+    } finally {
+      setBusyId(null);
     }
-    await supabase.from('stock_transfers').update({ status: next, ...extra }).eq('id', t.id);
-    await logAudit(`transfer.${next}`, 'stock_transfers', t.id, {
-      from_branch_id: t.from_branch_id,
-      to_branch_id: t.to_branch_id,
-      transfer_number: t.transfer_number ?? null,
-    });
-    refetch();
   };
 
   if (loading) return <LoadingState />;
@@ -98,6 +145,8 @@ export function TransfersPage() {
         </div>
         {canManage && <Button onClick={() => setShowModal(true)} className="w-full sm:w-auto"><Plus size={18} /> New Transfer</Button>}
       </div>
+
+      {syncError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{syncError}</p>}
 
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
@@ -143,19 +192,19 @@ export function TransfersPage() {
                 <div className="flex items-center gap-1 shrink-0 flex-wrap">
                   <Button variant="ghost" size="sm" onClick={() => setViewTransfer(t)}><Eye size={14}/>View</Button>
                   {canManage && t.status === 'requested' && (
-                    <Button variant="ghost" size="sm" onClick={() => advanceStatus(t, 'reviewed')}>Review</Button>
+                    <Button variant="ghost" size="sm" disabled={busyId === t.id} onClick={() => advanceStatus(t, 'reviewed')}>Review</Button>
                   )}
                   {canManage && t.status === 'reviewed' && (
-                    <Button variant="ghost" size="sm" onClick={() => advanceStatus(t, 'approved', { approved_by: user?.id })}>Approve</Button>
+                    <Button variant="ghost" size="sm" disabled={busyId === t.id} onClick={() => advanceStatus(t, 'approved', { approved_by: user?.id })}>Approve</Button>
                   )}
                   {canManage && t.status === 'approved' && (
-                    <Button variant="ghost" size="sm" onClick={() => advanceStatus(t, 'dispatched', { dispatched_at: new Date().toISOString() })}>Dispatch</Button>
+                    <Button variant="ghost" size="sm" disabled={busyId === t.id} onClick={() => advanceStatus(t, 'dispatched', { dispatched_at: new Date().toISOString() })}>Dispatch</Button>
                   )}
                   {canManage && (t.status === 'dispatched' || t.status === 'in_transit') && (
-                    <Button variant="ghost" size="sm" onClick={() => advanceStatus(t, 'received', { received_at: new Date().toISOString() })}>Mark Received</Button>
+                    <Button variant="ghost" size="sm" disabled={busyId === t.id} onClick={() => advanceStatus(t, 'received', { received_at: new Date().toISOString() })}>{busyId === t.id ? 'Working…' : 'Mark Received'}</Button>
                   )}
                   {canManage && t.status === 'received' && (
-                    <Button variant="ghost" size="sm" onClick={() => advanceStatus(t, 'completed', { completed_at: new Date().toISOString() })}>Complete</Button>
+                    <Button variant="ghost" size="sm" disabled={busyId === t.id} onClick={() => advanceStatus(t, 'completed', { completed_at: new Date().toISOString() })}>Complete</Button>
                   )}
                 </div>
               </div>
@@ -163,14 +212,14 @@ export function TransfersPage() {
           ))}
           <div className="p-4 border-t border-slate-100">
             <div className="flex flex-col sm:flex-row justify-between items-center gap-1 text-sm text-slate-500 text-center sm:text-left">
-              <span>Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, filtered.length)} of {filtered.length} transfers</span>
-              <span>Page {page} of {Math.ceil(filtered.length / pageSize)}</span>
+              <span>Showing {filtered.length === 0 ? 0 : (page - 1) * pageSize + 1} to {(page - 1) * pageSize + filtered.length} of {Math.max(count ?? 0, filtered.length)} transfers</span>
+              <span>Page {page} of {Math.max(1, Math.ceil(Math.max(count ?? 0, filtered.length) / pageSize))}</span>
             </div>
             <div className="flex gap-2 justify-center">
               <Button variant="ghost" onClick={()=>{setPage(p=> Math.max(1, p - 1));}} disabled={page===1}>
                 Prev
               </Button>
-              <Button variant="ghost" onClick={()=>{setPage(p=> Math.min(Math.ceil(filtered.length / pageSize), p + 1));}} disabled={page>=Math.ceil(filtered.length / pageSize)}>
+              <Button variant="ghost" onClick={()=>{setPage(p=> Math.min(Math.max(1, Math.ceil(Math.max(count ?? 0, filtered.length) / pageSize)), p + 1));}} disabled={page>=Math.max(1, Math.ceil(Math.max(count ?? 0, filtered.length) / pageSize))}>
                 Next
               </Button>
             </div>

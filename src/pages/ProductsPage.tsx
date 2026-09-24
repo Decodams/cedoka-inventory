@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { Input, Select, Textarea } from '@/components/ui/Form';
 import { Badge } from '@/components/ui/Badge';
-import { formatCurrency } from '@/lib/dateUtils';
+import { formatCurrency, formatDate, formatDateTime } from '@/lib/dateUtils';
 import { isAtLeast, hasRole } from '@/lib/rbac';
 import { isFarmBusiness, unitOptionsFor } from '@/lib/business';
 import { edgeErrorMessage } from '@/lib/edge';
@@ -30,7 +30,8 @@ export function ProductsPage() {
   const isExecutive = hasRole(user, 'super_admin');
   const isAdmin = isAtLeast(user, 'admin');
   const [page, setPage] = useState(1);
-  const pageSize = 30;
+  const pageSize = 10;
+  const [detail, setDetail] = useState<Product | null>(null);
 
   useEffect(() => { setPage(1); }, [search, filterBusiness, user?.business_id]);
 
@@ -87,7 +88,7 @@ export function ProductsPage() {
     const to = page * pageSize - 1;
     let q = supabase
       .from('products')
-      .select(`*, category:categories(id,name), supplier:suppliers(id,name)`, { count: 'exact' })
+      .select(`*, category:categories(id,name), supplier:suppliers(id,name), business:businesses(id,name)`, { count: 'exact' })
       .order('name')
       .range(from, to);
     if (!isExecutive) {
@@ -100,13 +101,19 @@ export function ProductsPage() {
       }
     }
     if (filterBusiness !== 'all') q = q.eq('business_id', filterBusiness);
+    // Search runs server-side across the whole catalog (not just this page).
+    const needle = search.trim();
+    if (needle) {
+      const safe = needle.replace(/[,%()\\]/g, ' ').trim();
+      if (safe) q = q.or(`name.ilike.%${safe}%,sku.ilike.%${safe}%,brand.ilike.%${safe}%`);
+    }
     return q;
-  }, [isExecutive, isAdmin, user, accessibleBusinessIds, filterBusiness, page, pageSize]);
+  }, [isExecutive, isAdmin, user, accessibleBusinessIds, filterBusiness, search, page, pageSize]);
 
-  const { data: products, loading, error, refetch } = useSupabaseQuery<Product[]>(
+  const { data: products, loading, error, count, refetch } = useSupabaseQuery<Product[]>(
     () => productsQuery,
     [productsQuery],
-    { cacheKey: `products:${user?.id ?? 'anon'}:${user?.business_id ?? '-'}:${filterBusiness}:${(accessibleBusinessIds ?? []).join(',')}` },
+    { cacheKey: `products:${user?.id ?? 'anon'}:${user?.business_id ?? '-'}:${filterBusiness}:${(accessibleBusinessIds ?? []).join(',')}:${page}:${search.trim().toLowerCase()}` },
   );
 
   // Global serial search: find products by serial number across the catalog.
@@ -129,15 +136,9 @@ export function ProductsPage() {
   );
 
   const filtered = useMemo(() => {
-    const base = !products ? [] : !search ? products : (() => {
-      const q = search.toLowerCase();
-      return products.filter(
-        (p) =>
-          p.name.toLowerCase().includes(q) ||
-          (p.sku?.toLowerCase().includes(q) ?? false) ||
-          (p.brand?.toLowerCase().includes(q) ?? false),
-      );
-    })();
+    // Name/SKU/brand search already ran server-side in productsQuery; this only
+    // appends products found via global serial search.
+    const base = products ?? [];
     if (!serialNeedle) return base;
     const extras = (serialMatches ?? [])
       .map((r) => r.product)
@@ -148,7 +149,27 @@ export function ProductsPage() {
         return !user?.business_id || p.business_id === user.business_id;
       });
     return [...base, ...extras];
-  }, [products, search, serialMatches, serialNeedle, isExecutive, isAdmin, accessibleBusinessIds, user?.business_id]);
+  }, [products, serialMatches, serialNeedle, isExecutive, isAdmin, accessibleBusinessIds, user?.business_id]);
+
+  // Real stock per product (sum of inventory_balances rows visible to this
+  // user's branch scope). Powers the Stock column and the detail modal.
+  const filteredIds = useMemo(() => [...new Set(filtered.map((p) => p.id))], [filtered]);
+  const idsKey = filteredIds.join(',');
+  const { data: balanceRows, refetch: refetchBalances } = useSupabaseQuery<Array<{ product_id: string; current_stock: number | string }>>(
+    idsKey
+      ? () => supabase.from('inventory_balances').select('product_id, current_stock').in('product_id', idsKey.split(','))
+      : null,
+    [idsKey],
+    { cacheKey: idsKey ? `prodstock:${user?.id ?? 'anon'}:${idsKey}` : undefined, ttlMs: 15_000 },
+  );
+
+  const stockByProduct = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of balanceRows ?? []) {
+      m.set(r.product_id, (m.get(r.product_id) ?? 0) + (Number(r.current_stock) || 0));
+    }
+    return m;
+  }, [balanceRows]);
 
   const toggleProductActive = async (p: Product) => {
     setNotice(null);
@@ -227,8 +248,22 @@ export function ProductsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {filtered.map((p) => (
-                    <tr key={p.id} className="hover:bg-slate-50/50 transition-colors">
+                  {filtered.map((p) => {
+                    const stock = stockByProduct.get(p.id) ?? 0;
+                    const minLevel = Number(p.min_stock_level) || 0;
+                    const stockClass = stock <= 0
+                      ? 'text-rose-600'
+                      : minLevel > 0 && stock <= minLevel
+                        ? 'text-amber-600'
+                        : 'text-slate-700';
+                    return (
+                    <tr
+                      key={p.id}
+                      className="hover:bg-slate-50/50 transition-colors cursor-pointer"
+                      onClick={() => setDetail(p)}
+                      tabIndex={0}
+                      onKeyDown={(e) => { if (e.key === 'Enter') setDetail(p); }}
+                    >
                       <td className="px-3 py-3 sm:px-5">
                         <div className="flex items-center gap-3 min-w-0">
                           <div className="w-9 h-9 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center text-sm font-semibold shrink-0">
@@ -246,7 +281,12 @@ export function ProductsPage() {
                       <td className="px-3 py-3 sm:px-5"><Badge className="bg-emerald-50 text-emerald-700 border-emerald-100">{p.unit}</Badge></td>
                       <td className="text-right px-3 py-3 sm:px-5 text-sm text-slate-600">{formatCurrency(Number(p.cost_price))}</td>
                       <td className="text-right px-3 py-3 sm:px-5 text-sm font-medium text-slate-900">{formatCurrency(Number(p.selling_price))}</td>
-                      <td className="text-right px-3 py-3 sm:px-5 text-sm text-slate-600">{p.min_stock_level} {p.unit}</td>
+                      <td className={`text-right px-3 py-3 sm:px-5 text-sm font-medium ${stockClass}`}>
+                        {stock} {p.unit}
+                        {minLevel > 0 && stock > 0 && stock <= minLevel && (
+                          <span className="block text-[11px] font-normal text-amber-600">min {minLevel}</span>
+                        )}
+                      </td>
                       <td className="px-3 py-3 sm:px-5">
                         <Badge className={p.is_active ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-gray-100 text-gray-500 border-gray-200'}>
                           {p.is_active ? 'Active' : 'Inactive'}
@@ -256,7 +296,7 @@ export function ProductsPage() {
                         {canManage && (
                           <div className="inline-flex items-center gap-1">
                             <button
-                              onClick={() => toggleProductActive(p)}
+                              onClick={(e) => { e.stopPropagation(); toggleProductActive(p); }}
                               title={p.is_active ? 'Deactivate product' : 'Activate product'}
                               aria-label={p.is_active ? `Deactivate ${p.name}` : `Activate ${p.name}`}
                               className={`p-1.5 rounded-lg hover:bg-slate-100 ${p.is_active ? 'text-slate-400 hover:text-slate-600' : 'text-amber-500 hover:text-amber-600'}`}
@@ -264,7 +304,7 @@ export function ProductsPage() {
                               <Power size={15} />
                             </button>
                             <button
-                              onClick={() => { setEditing(p); setShowModal(true); }}
+                              onClick={(e) => { e.stopPropagation(); setEditing(p); setShowModal(true); }}
                               className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600"
                             >
                               <Pencil size={15} />
@@ -273,20 +313,21 @@ export function ProductsPage() {
                         )}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
             <div className="p-4 border-t border-slate-100">
               <div className="flex flex-col sm:flex-row justify-between items-center gap-1 text-sm text-slate-500 text-center sm:text-left">
-                <span>Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, filtered.length)} of {filtered.length} products</span>
-                <span>Page {page} of {Math.ceil(filtered.length / pageSize)}</span>
+                <span>Showing {filtered.length === 0 ? 0 : (page - 1) * pageSize + 1} to {(page - 1) * pageSize + filtered.length} of {Math.max(count ?? 0, filtered.length)} products</span>
+                <span>Page {page} of {Math.max(1, Math.ceil(Math.max(count ?? 0, filtered.length) / pageSize))}</span>
               </div>
               <div className="flex gap-2 justify-center">
                 <Button variant="ghost" onClick={()=>{setPage(p=> Math.max(1, p - 1));}} disabled={page===1}>
                   Prev
                 </Button>
-                <Button variant="ghost" onClick={()=>{setPage(p=> Math.min(Math.ceil(filtered.length / pageSize), p + 1));}} disabled={page>=Math.ceil(filtered.length / pageSize)}>
+                <Button variant="ghost" onClick={()=>{setPage(p=> Math.min(Math.max(1, Math.ceil(Math.max(count ?? 0, filtered.length) / pageSize)), p + 1));}} disabled={page>=Math.max(1, Math.ceil(Math.max(count ?? 0, filtered.length) / pageSize))}>
                   Next
                 </Button>
               </div>
@@ -311,7 +352,15 @@ export function ProductsPage() {
           measurementUnits={measurementUnits ?? []}
           allProducts={products ?? []}
           onClose={() => { setShowModal(false); setEditing(null); }}
-          onSaved={(message) => { clearQueryCache('products:'); setPage(1); refetch(); refetchCategories(); refetchMeasurementUnits(); setShowModal(false); setEditing(null); if (message) setNotice(message); }}
+          onSaved={(message) => { clearQueryCache('products:'); clearQueryCache('prodstock:'); setPage(1); refetch(); refetchBalances(); refetchCategories(); refetchMeasurementUnits(); setShowModal(false); setEditing(null); if (message) setNotice(message); }}
+        />
+      )}
+
+      {detail && (
+        <ProductDetailModal
+          product={detail}
+          onClose={() => setDetail(null)}
+          onEdit={() => { setEditing(detail); setDetail(null); setShowModal(true); }}
         />
       )}
 
@@ -327,6 +376,217 @@ export function ProductsPage() {
         />
       )}
     </div>
+  );
+}
+
+const DETAIL_MOVEMENT_LABELS: Record<string, string> = {
+  opening_balance: 'Opening balance',
+  purchase_receipt: 'Purchase receipt (GRN)',
+  sale: 'Sale',
+  transfer_in: 'Transfer in',
+  transfer_out: 'Transfer out',
+  return_in: 'Return in',
+  return_out: 'Return out',
+  damage: 'Damage',
+  loss: 'Loss',
+  adjustment: 'Adjustment',
+  stock_issue: 'Stock issue',
+  physical_count: 'Physical count',
+  production: 'Production',
+};
+
+function ProductDetailModal({ product, onClose, onEdit }: {
+  product: Product;
+  onClose: () => void;
+  onEdit: () => void;
+}) {
+  const [balances, setBalances] = useState<Array<{
+    branch: { name: string } | null;
+    current_stock: number | string;
+    min_stock_level: number | string;
+    updated_at: string;
+  }>>([]);
+  const [serials, setSerials] = useState<ProductSerialNumber[]>([]);
+  const [movements, setMovements] = useState<Array<{
+    id: string;
+    movement_type: string;
+    quantity: number | string;
+    reason: string | null;
+    branch: { name: string } | null;
+    created_at: string;
+  }>>([]);
+  const [detailLoading, setDetailLoading] = useState(true);
+  const [detailError, setDetailError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      setDetailLoading(true);
+      setDetailError(null);
+      try {
+        const [balRes, serRes, movRes] = await Promise.all([
+          supabase.from('inventory_balances')
+            .select('branch:branches(name), current_stock, min_stock_level, updated_at')
+            .eq('product_id', product.id)
+            .order('updated_at', { ascending: false }),
+          supabase.from('product_serial_numbers')
+            .select('*')
+            .eq('product_id', product.id)
+            .order('created_at'),
+          supabase.from('inventory_transactions')
+            .select('id, movement_type, quantity, reason, branch:branches(name), created_at')
+            .eq('product_id', product.id)
+            .order('created_at', { ascending: false })
+            .limit(10),
+        ]);
+        if (!mounted) return;
+        const firstErr = balRes.error ?? serRes.error ?? movRes.error;
+        if (firstErr) setDetailError(firstErr.message);
+        setBalances((balRes.data ?? []) as unknown as typeof balances);
+        setSerials((serRes.data ?? []) as unknown as ProductSerialNumber[]);
+        setMovements((movRes.data ?? []) as unknown as typeof movements);
+      } catch (err) {
+        if (mounted) setDetailError(err instanceof Error ? err.message : 'Could not load inventory details.');
+      } finally {
+        if (mounted) setDetailLoading(false);
+      }
+    })();
+    return () => { mounted = false; };
+  }, [product.id]);
+
+  const totalStock = balances.reduce((sum, b) => sum + (Number(b.current_stock) || 0), 0);
+  const minLevel = Number(product.min_stock_level) || 0;
+
+  return (
+    <Modal open onClose={onClose} title={product.name} size="lg">
+      <div className="space-y-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge className={product.is_active ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-gray-100 text-gray-500 border-gray-200'}>
+              {product.is_active ? 'Active' : 'Inactive'}
+            </Badge>
+            <Badge className="bg-slate-100 text-slate-600 border-slate-200">{product.product_type}</Badge>
+            <Badge className="bg-slate-100 text-slate-600 border-slate-200">Serials: {product.serial_tracking_mode}</Badge>
+            <Badge className={totalStock <= 0 ? 'bg-rose-100 text-rose-700 border-rose-200' : minLevel > 0 && totalStock <= minLevel ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200'}>
+              Stock: {totalStock} {product.unit}
+            </Badge>
+          </div>
+          <Button variant="outline" onClick={onEdit}><Pencil size={15} /> Edit</Button>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+          {([
+            ['SKU', product.sku || '—'],
+            ['Brand', product.brand || '—'],
+            ['Model', product.model || '—'],
+            ['Category', product.category?.name ?? '—'],
+            ['Business', product.business?.name ?? '—'],
+            ['Supplier', product.supplier?.name ?? '—'],
+            ['Unit', product.unit],
+            ['Cost', formatCurrency(Number(product.cost_price))],
+            ['Price', formatCurrency(Number(product.selling_price))],
+            ['Min stock', `${product.min_stock_level} ${product.unit}`],
+            ['Reorder level', `${product.reorder_level} ${product.unit}`],
+            ['Warranty', product.warranty_months ? `${product.warranty_months} months` : '—'],
+          ] as Array<[string, string]>).map(([label, value]) => (
+            <div key={label} className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2">
+              <p className="text-[11px] uppercase tracking-wide text-slate-400">{label}</p>
+              <p className="text-slate-800 font-medium truncate">{value}</p>
+            </div>
+          ))}
+        </div>
+        {product.description && <p className="text-sm text-slate-600">{product.description}</p>}
+
+        {detailError && <p role="alert" className="text-sm text-rose-600">{detailError}</p>}
+        {detailLoading ? (
+          <p className="text-sm text-slate-400">Loading inventory details…</p>
+        ) : (
+          <>
+            <div>
+              <h3 className="text-sm font-semibold text-slate-800 mb-2">Stock by branch</h3>
+              {balances.length === 0 ? (
+                <p className="text-sm text-slate-400">No balance rows yet — stock at a branch is created on the first sale, transfer, or receipt.</p>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-slate-200">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-slate-50 text-xs uppercase text-slate-500">
+                        <th className="text-left px-3 py-2">Branch</th>
+                        <th className="text-right px-3 py-2">Stock</th>
+                        <th className="text-right px-3 py-2">Min</th>
+                        <th className="text-right px-3 py-2">Updated</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {balances.map((b, i) => (
+                        <tr key={`${b.branch?.name ?? 'x'}-${i}`}>
+                          <td className="px-3 py-2">{b.branch?.name ?? '—'}</td>
+                          <td className="px-3 py-2 text-right font-medium">{Number(b.current_stock)} {product.unit}</td>
+                          <td className="px-3 py-2 text-right text-slate-500">{Number(b.min_stock_level)}</td>
+                          <td className="px-3 py-2 text-right text-slate-400">{formatDate(b.updated_at)}</td>
+                        </tr>
+                      ))}
+                      <tr className="bg-slate-50 font-semibold">
+                        <td className="px-3 py-2">Total</td>
+                        <td className="px-3 py-2 text-right">{totalStock} {product.unit}</td>
+                        <td colSpan={2} />
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <h3 className="text-sm font-semibold text-slate-800 mb-2">Serial numbers ({serials.length})</h3>
+              {serials.length === 0 ? (
+                <p className="text-sm text-slate-400">
+                  {product.serial_tracking_mode === 'none'
+                    ? 'Serial tracking is off for this product.'
+                    : 'No serial numbers recorded yet.'}
+                </p>
+              ) : (
+                <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-200 divide-y divide-slate-50">
+                  {serials.map((s) => (
+                    <div key={s.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                      <span className="font-mono text-slate-700 truncate">{s.serial_number}</span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {s.quantity > 1 && <span className="text-xs text-slate-400">×{s.quantity}</span>}
+                        <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium border ${s.status === 'available' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : s.status === 'sold' ? 'bg-slate-100 text-slate-500 border-slate-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                          {s.status}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <h3 className="text-sm font-semibold text-slate-800 mb-2">Recent movements</h3>
+              {movements.length === 0 ? (
+                <p className="text-sm text-slate-400">No stock movements yet.</p>
+              ) : (
+                <div className="rounded-xl border border-slate-200 divide-y divide-slate-50 text-sm">
+                  {movements.map((m) => (
+                    <div key={m.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="text-slate-800 font-medium">{DETAIL_MOVEMENT_LABELS[m.movement_type] ?? m.movement_type}</p>
+                        <p className="text-xs text-slate-400 truncate">{m.branch?.name ?? '—'}{m.reason ? ` · ${m.reason}` : ''}</p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="font-medium text-slate-800">{Number(m.quantity)} {product.unit}</p>
+                        <p className="text-xs text-slate-400">{formatDateTime(m.created_at)}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </Modal>
   );
 }
 
@@ -585,7 +845,7 @@ function ProductFormModal({
   businesses: Business[];
   measurementUnits: BusinessMeasurementUnit[];
   allProducts: Product[];
-  currentUser: { role?: { name: string }; business_id: string | null } | null;
+  currentUser: { role?: { name: string }; business_id: string | null; branch_id?: string | null } | null;
   canDelete: boolean;
   onClose: () => void;
   onSaved: (message?: string) => void;
@@ -728,6 +988,8 @@ function ProductFormModal({
   const [costPrice, setCostPrice] = useState(product?.cost_price?.toString() ?? '0');
   const [sellingPrice, setSellingPrice] = useState(product?.selling_price?.toString() ?? '0');
   const [openingStock, setOpeningStock] = useState('');
+  const [minStockLevel, setMinStockLevel] = useState(product?.min_stock_level?.toString() ?? '0');
+  const [reorderLevel, setReorderLevel] = useState(product?.reorder_level?.toString() ?? '0');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -765,6 +1027,12 @@ function ProductFormModal({
       setError('Opening stock must be zero or more.');
       return;
     }
+    const minVal = Math.max(0, Number(minStockLevel || 0) || 0);
+    const reorderVal = Math.max(0, Number(reorderLevel || 0) || 0);
+    if (!Number.isFinite(Number(minStockLevel || 0)) || !Number.isFinite(Number(reorderLevel || 0))) {
+      setError('Min stock and reorder levels must be numbers.');
+      return;
+    }
     if (product && product.serial_tracking_mode !== 'none' && serialMode !== product.serial_tracking_mode && serials.some((s) => s.status !== 'available')) {
       setError('This product has sold or adjusted serials, so its tracking mode cannot be changed. Sold history stays intact.');
       return;
@@ -794,8 +1062,8 @@ function ProductFormModal({
       unit: unit.trim(),
       cost_price: Number(costPrice || 0),
       selling_price: Number(sellingPrice || 0),
-      min_stock_level: product?.min_stock_level ?? 0,
-      reorder_level: product?.reorder_level ?? 0,
+      min_stock_level: minVal,
+      reorder_level: reorderVal,
       product_type: product?.product_type ?? 'simple',
       serial_tracking_mode: serialMode,
       warranty_months: isFarm ? null : (product?.warranty_months ?? null),
@@ -834,27 +1102,34 @@ function ProductFormModal({
       }
     };
     const seedBalances = async (productId: string, opening: number) => {
-      // Initialize inventory balance rows for active branches in this business.
-      // Only brand-new products get an opening quantity; existing stock is
-      // managed through stock movements, never overwritten here.
+      // Seed exactly ONE balance row so a new product never repeats once per
+      // branch (the historic 3× duplication): the creator's own branch when it
+      // belongs to this business, otherwise the first active branch. Other
+      // branches get their rows lazily via record_inventory_movement (sales,
+      // transfers, GRN), which also copies the product's min/reorder levels.
       try {
         const { data: bizBranches } = await supabase
           .from('branches')
-          .select('id')
+          .select('id, created_at')
           .eq('business_id', businessId)
-          .eq('is_active', true);
+          .eq('is_active', true)
+          .order('created_at');
 
-        if (bizBranches && bizBranches.length > 0) {
-          const balances = bizBranches.map((br) => ({
-            product_id: productId,
-            branch_id: (br as { id: string }).id,
-            opening_stock: opening,
-            current_stock: opening,
-            min_stock_level: 0,
-            reorder_level: 0,
-          }));
-          await supabase.from('inventory_balances').insert(balances);
-        }
+        const branches = (bizBranches ?? []) as Array<{ id: string }>;
+        if (branches.length === 0) return;
+        const ownBranch = currentUser?.branch_id && branches.some((b) => b.id === currentUser?.branch_id)
+          ? currentUser.branch_id
+          : undefined;
+        const targetBranch = ownBranch ?? branches[0].id;
+        const { error: seedErr } = await supabase.from('inventory_balances').insert({
+          product_id: productId,
+          branch_id: targetBranch,
+          opening_stock: opening,
+          current_stock: opening,
+          min_stock_level: payload.min_stock_level,
+          reorder_level: payload.reorder_level,
+        });
+        if (seedErr) console.warn('Balance seeding note:', seedErr.message);
       } catch (balanceErr) {
         console.warn('Auto balance seeding note:', balanceErr);
       }
@@ -1295,6 +1570,8 @@ function ProductFormModal({
           {!product && (
             <Input label={`Stock Quantity${unit ? ` (${unit})` : ''}`} type="number" min="0" step="any" value={openingStock} onChange={(e) => setOpeningStock(e.target.value)} placeholder="0" />
           )}
+          <Input label="Min Stock Level" type="number" min="0" step="any" value={minStockLevel} onChange={(e) => setMinStockLevel(e.target.value)} placeholder="0" />
+          <Input label="Reorder Level" type="number" min="0" step="any" value={reorderLevel} onChange={(e) => setReorderLevel(e.target.value)} placeholder="0" />
         </div>
         {error && <p className="text-sm text-rose-600">{error}</p>}
         <div className="flex justify-between gap-3 pt-2">

@@ -23,6 +23,24 @@ export function ProcurementPage() {
   const canManage = isAtLeast(user, 'manager');
   const isExecutive = hasRole(user, 'super_admin');
   const isBusinessLevel = isAtLeast(user, 'admin');
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+  const needle = search.trim().replace(/[,%()\\]/g, ' ').trim();
+
+  useEffect(() => { setPage(1); }, [search, filterStatus, user?.business_id]);
+
+  const { data: myBusinessAssignments } = useSupabaseQuery<Array<{ business_id: string }>>(
+    user?.id ? () => supabase.from('user_business_assignments').select('business_id').eq('user_id', user?.id ?? '') : null,
+    [user?.id],
+    { cacheKey: `assign:biz:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
+  );
+  const accessibleBusinessIds = useMemo(() => {
+    if (isExecutive || !isBusinessLevel) return null;
+    const set = new Set<string>();
+    if (user?.business_id) set.add(user.business_id);
+    for (const a of myBusinessAssignments ?? []) if (a.business_id) set.add(a.business_id);
+    return [...set];
+  }, [isExecutive, isBusinessLevel, user?.business_id, myBusinessAssignments]);
 
   const { data: businesses } = useSupabaseQuery<Business[]>(
     () => supabase.from('businesses').select('*').eq('is_active', true).order('name'),
@@ -47,29 +65,42 @@ export function ProcurementPage() {
       .from('purchase_requests')
       .select(`*, business:businesses(id,name), branch:branches(id,name), supplier:suppliers(id,name)`)
       .order('created_at', { ascending: false })
-      .limit(60);
-    if (!isExecutive && isBusinessLevel && user?.business_id) {
-      q = q.eq('business_id', user.business_id);
+      .limit(200);
+    if (!isExecutive && isBusinessLevel) {
+      if (accessibleBusinessIds && accessibleBusinessIds.length > 0) q = q.in('business_id', accessibleBusinessIds);
+      else if (user?.business_id) q = q.eq('business_id', user.business_id);
     } else if (!isBusinessLevel && user?.branch_id) {
       q = q.eq('branch_id', user.branch_id);
     }
     if (filterStatus !== 'all') q = q.eq('status', filterStatus as PurchaseStatus);
+    if (needle) {
+      const clauses = [`notes.ilike.%${needle}%`, `request_number.ilike.%${needle}%`];
+      const supplierIds = (suppliers ?? []).filter((s) => s.name.toLowerCase().includes(needle.toLowerCase())).map((s) => s.id);
+      const branchIds = (branches ?? []).filter((b) => b.name.toLowerCase().includes(needle.toLowerCase())).map((b) => b.id);
+      if (supplierIds.length > 0) clauses.push(`supplier_id.in.(${supplierIds.join(',')})`);
+      if (branchIds.length > 0) clauses.push(`branch_id.in.(${branchIds.join(',')})`);
+      q = q.or(clauses.join(','));
+    }
     return q;
-  }, [isExecutive, isBusinessLevel, user, filterStatus]);
+  }, [isExecutive, isBusinessLevel, user, accessibleBusinessIds, filterStatus, needle, suppliers, branches]);
 
   const { data: purchases, loading, error, refetch } = useSupabaseQuery<PurchaseRequest[]>(
     () => purchaseQuery,
     [purchaseQuery],
+    { cacheKey: `procurement:${user?.id ?? 'anon'}:${filterStatus}:${page}:${needle.toLowerCase()}:${(accessibleBusinessIds ?? []).join(',')}` },
   );
 
   const filtered = useMemo(() => {
     if (!purchases) return [];
-    if (!search) return purchases;
-    const q = search.toLowerCase();
+    if (!needle) return purchases;
+    const q = needle.toLowerCase();
     return purchases.filter(
       (p) => (p.supplier?.name?.toLowerCase().includes(q) ?? false) || (p.branch?.name?.toLowerCase().includes(q) ?? false) || (p.notes?.toLowerCase().includes(q) ?? false),
     );
-  }, [purchases, search]);
+  }, [purchases, needle]);
+
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
 
   if (loading) return <LoadingState />;
   if (error) return <ErrorState message="Could not load procurement records." onRetry={refetch} />;
@@ -102,7 +133,7 @@ export function ProcurementPage() {
 
       {filtered.length > 0 ? (
         <div className="space-y-3">
-          {filtered.map((p) => (
+          {pageRows.map((p) => (
             <div key={p.id} className="bg-white rounded-2xl border border-slate-200 p-5">
               <div className="flex items-start justify-between gap-4">
                 <div className="flex items-start gap-3 min-w-0 flex-1">
@@ -174,6 +205,16 @@ export function ProcurementPage() {
               </div>
             </div>
           ))}
+          <div className="p-4 border-t border-slate-100">
+            <div className="flex flex-col sm:flex-row justify-between items-center gap-1 text-sm text-slate-500 text-center sm:text-left">
+              <span>Showing {filtered.length === 0 ? 0 : (page - 1) * pageSize + 1} to {(page - 1) * pageSize + pageRows.length} of {filtered.length} purchase requests</span>
+              <span>Page {page} of {totalPages}</span>
+            </div>
+            <div className="flex gap-2 justify-center mt-2">
+              <Button variant="ghost" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>Prev</Button>
+              <Button variant="ghost" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>Next</Button>
+            </div>
+          </div>
         </div>
       ) : (
         <EmptyState
@@ -194,13 +235,13 @@ export function ProcurementPage() {
           onSaved={() => { refetch(); setShowModal(false); }}
         />
       )}
-      {grnPurchase && <GRNModal purchase={grnPurchase} currentUser={user} onClose={() => setGrnPurchase(null)} onSaved={() => { refetch(); setGrnPurchase(null); }} />}
+      {grnPurchase && <GRNModal purchase={grnPurchase} onClose={() => setGrnPurchase(null)} onSaved={() => { refetch(); setGrnPurchase(null); }} />}
       {viewGRNs && <ViewGRNsModal purchase={viewGRNs} onClose={() => setViewGRNs(null)} />}
     </div>
   );
 }
 
-function GRNModal({ purchase, currentUser, onClose, onSaved }: { purchase: PurchaseRequest; currentUser: { id: string } | null; onClose: () => void; onSaved: () => void }) {
+function GRNModal({ purchase, onClose, onSaved }: { purchase: PurchaseRequest; onClose: () => void; onSaved: () => void }) {
   const [deliveryNote, setDeliveryNote] = useState('');
   const [isPartial, setIsPartial] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
@@ -224,26 +265,29 @@ function GRNModal({ purchase, currentUser, onClose, onSaved }: { purchase: Purch
     if (valid.length === 0) { setError('Add at least one product with received quantity'); return; }
     setSaving(true); setError(null);
     const grnNumber = `GRN-${Date.now().toString().slice(-8)}`;
-    const { data: grn, error: e } = await supabase.from('goods_received_notes').insert({
-      grn_number: grnNumber, purchase_request_id: purchase.id, branch_id: purchase.branch_id, supplier_id: purchase.supplier_id, received_by: currentUser?.id, delivery_note_number: deliveryNote || null, is_partial: isPartial, received_date: new Date().toISOString().split('T')[0],
-    }).select().single();
-    if (e || !grn) { setError(e?.message ?? 'Could not create GRN'); setSaving(false); return; }
-    const toInsert = valid.map((it) => ({ grn_id: grn.id, product_id: it.product_id, quantity_ordered: Number(it.quantity_ordered || 0), quantity_received: Number(it.quantity_received || 0), quantity_damaged: Number(it.quantity_damaged || 0), quantity_rejected: Number(it.quantity_rejected || 0), quantity_short: Number(it.quantity_short || 0) }));
-    await supabase.from('goods_received_items').insert(toInsert);
-    // inventory only increases by quantity_received (net of damaged/rejected handled separately). Here we use received - damaged - rejected
-    for (const it of valid) {
-      const netQty = Number(it.quantity_received) - Number(it.quantity_damaged || 0) - Number(it.quantity_rejected || 0);
-      if (netQty > 0) {
-        await supabase.rpc('record_inventory_movement', { p_product_id: it.product_id, p_branch_id: purchase.branch_id, p_movement_type: 'purchase_receipt', p_quantity: netQty, p_reason: `GRN ${grnNumber} for PO ${purchase.request_number ?? purchase.id.slice(0,8)}`, p_reference_type: 'goods_received_note', p_reference_id: grn.id });
-      }
-      if (Number(it.quantity_damaged || 0) > 0) {
-        await supabase.rpc('record_inventory_movement', { p_product_id: it.product_id, p_branch_id: purchase.branch_id, p_movement_type: 'damage', p_quantity: Number(it.quantity_damaged), p_reason: `Damaged on GRN ${grnNumber}`, p_reference_type: 'goods_received_note', p_reference_id: grn.id });
-      }
+    // One atomic RPC: GRN note + items + stock movements + purchase status all
+    // commit or roll back together, so procurement can never drift from stock.
+    const payloadItems = valid.map((it) => ({
+      product_id: it.product_id,
+      quantity_ordered: Number(it.quantity_ordered || 0),
+      quantity_received: Number(it.quantity_received || 0),
+      quantity_damaged: Number(it.quantity_damaged || 0),
+      quantity_rejected: Number(it.quantity_rejected || 0),
+      quantity_short: Number(it.quantity_short || 0),
+    }));
+    const { data: grn, error: rpcErr } = await supabase.rpc('record_grn_with_items', {
+      p_purchase_request_id: purchase.id,
+      p_grn_number: grnNumber,
+      p_items: payloadItems,
+      p_delivery_note_number: deliveryNote || null,
+      p_is_partial: isPartial,
+    });
+    if (rpcErr) {
+      setError(`Could not record the GRN (nothing was saved): ${rpcErr.message}`);
+      setSaving(false);
+      return;
     }
-    // update PR status
-    const hasOutstanding = valid.some((it) => Number(it.quantity_short) > 0) || isPartial;
-    await supabase.from('purchase_requests').update({ status: hasOutstanding ? 'partially_received' : 'received' }).eq('id', purchase.id);
-    await logAudit('goods_received', 'goods_received_notes', grn.id, {
+    await logAudit('goods_received', 'goods_received_notes', (grn as { id: string }).id, {
       grn_number: grnNumber,
       purchase_request_id: purchase.id,
       branch_id: purchase.branch_id,

@@ -135,39 +135,111 @@ export function DashboardPage() {
   });
 
   const usersQuery = useMemo(() => {
-    if (!isSuperAdmin) return supabase.from('user_profiles').select('*').eq('id', user?.id ?? '00000000-0000-0000-0000-000000000000');
-    return supabase.from('user_profiles').select('*, role:roles(id,name,display_name)').eq('is_active', true).order('created_at', { ascending: false }).limit(20);
-  }, [isSuperAdmin, user]);
+    if (!isAdmin) return supabase.from('user_profiles').select('*').eq('id', user?.id ?? '00000000-0000-0000-0000-000000000000');
+    return supabase.from('user_profiles').select('*, role:roles(id,name,display_name)').eq('is_active', true).order('created_at', { ascending: false }).limit(200);
+  }, [isAdmin, user]);
   const { data: users } = useSupabaseQuery<UserProfile[]>(() => usersQuery, [usersQuery], {
     cacheKey: `dash:users:${roleName}:${user?.id ?? '-'}`,
   });
 
-  // Super Admin command-center aggregates: catalog size, empty shelves and
-  // the approval queue. Skipped for other roles.
+  // Command-center aggregates: catalog size, empty shelves and the approval
+  // queue. RLS scopes products/balances/profiles for Admins, so this is safe.
   const { data: allProducts } = useSupabaseQuery<Product[]>(
-    isSuperAdmin ? () => supabase.from('products').select('id,name,unit,is_active,business_id').order('name').limit(500) : null,
-    [isSuperAdmin],
-    { cacheKey: isSuperAdmin ? 'dash:admin:products' : undefined, ttlMs: 60_000 },
+    isAdmin ? () => supabase.from('products').select('id,name,unit,is_active,business_id').order('name').limit(1000) : null,
+    [isAdmin],
+    { cacheKey: isAdmin ? `dash:admin:products:${user?.id ?? '-'}` : undefined, ttlMs: 60_000 },
   );
   const { data: pendingUsers } = useSupabaseQuery<UserProfile[]>(
-    isSuperAdmin ? () => supabase.from('user_profiles').select('id').eq('approval_status', 'pending').limit(100) : null,
-    [isSuperAdmin],
-    { cacheKey: isSuperAdmin ? 'dash:admin:pending' : undefined, ttlMs: 60_000 },
-  );
-  const { data: emptyShelves } = useSupabaseQuery<Array<{ id: string }>>(
-    isSuperAdmin ? () => supabase.from('inventory_balances').select('id').lte('current_stock', 0).limit(500) : null,
-    [isSuperAdmin],
-    { cacheKey: isSuperAdmin ? 'dash:admin:nostock' : undefined, ttlMs: 60_000 },
+    isAdmin ? () => supabase.from('user_profiles').select('id').eq('approval_status', 'pending').limit(100) : null,
+    [isAdmin],
+    { cacheKey: isAdmin ? `dash:admin:pending:${user?.id ?? '-'}` : undefined, ttlMs: 60_000 },
   );
 
-  const { data: stockBalances } = useSupabaseQuery<Array<{ current_stock: number; min_stock_level: number }>>(
-    () => supabase.from('inventory_balances').select('current_stock,min_stock_level').limit(500),
+  const { data: stockBalances } = useSupabaseQuery<Array<{
+    current_stock: number | string;
+    min_stock_level: number | string;
+    product: { id: string; name: string; unit: string | null; cost_price: number | string } | null;
+    branch: { id: string; name: string } | null;
+  }>>(
+    () => supabase.from('inventory_balances')
+      .select('current_stock,min_stock_level, product:products(id,name,unit,cost_price), branch:branches(id,name)')
+      .limit(1000),
     [],
     { cacheKey: `dash:stock:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
   );
   const lowStockCount = (stockBalances ?? []).filter(
     (b) => Number(b.min_stock_level) > 0 && Number(b.current_stock) <= Number(b.min_stock_level),
   ).length;
+  const outOfStockCount = (stockBalances ?? []).filter((b) => Number(b.current_stock) <= 0).length;
+  const totalStockUnits = (stockBalances ?? []).reduce((sum, b) => sum + (Number(b.current_stock) || 0), 0);
+  const stockValue = (stockBalances ?? []).reduce(
+    (sum, b) => sum + (Number(b.current_stock) || 0) * (Number(b.product?.cost_price ?? 0) || 0),
+    0,
+  );
+  const stockByBranch = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const b of stockBalances ?? []) {
+      const name = b.branch?.name ?? 'Unassigned';
+      map.set(name, (map.get(name) ?? 0) + (Number(b.current_stock) || 0));
+    }
+    return Array.from(map.entries()).map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty).slice(0, 8);
+  }, [stockBalances]);
+  const maxBranchQty = useMemo(() => Math.max(...stockByBranch.map((b) => b.qty), 1), [stockByBranch]);
+  const topStockProducts = useMemo(() => {
+    const map = new Map<string, { name: string; qty: number }>();
+    for (const b of stockBalances ?? []) {
+      const name = b.product?.name ?? 'Unknown product';
+      const entry = map.get(name) ?? { name, qty: 0 };
+      entry.qty += Number(b.current_stock) || 0;
+      map.set(name, entry);
+    }
+    return Array.from(map.values()).sort((a, b) => b.qty - a.qty).slice(0, 8);
+  }, [stockBalances]);
+  const lowStockRows = useMemo(
+    () => (stockBalances ?? [])
+      .filter((b) => Number(b.min_stock_level) > 0 && Number(b.current_stock) <= Number(b.min_stock_level))
+      .sort((a, b) => Number(a.current_stock) - Number(b.current_stock))
+      .slice(0, 6),
+    [stockBalances],
+  );
+
+  const revenue30Query = useMemo(() => {
+    if (!isAdmin) return null;
+    const d0 = new Date(Date.now() - 29 * 86400000);
+    const since = `${d0.getFullYear()}-${String(d0.getMonth() + 1).padStart(2, '0')}-${String(d0.getDate()).padStart(2, '0')}`;
+    let q = supabase.from('daily_sales').select('sale_date,unit_price,quantity,discount_value,status').gte('sale_date', since).limit(1000);
+    if (!isSuperAdmin && accessibleBizIds.length > 0) q = q.in('business_id', accessibleBizIds);
+    return q;
+  }, [isAdmin, isSuperAdmin, accessibleBizIds]);
+  const { data: recentSales } = useSupabaseQuery<Array<{
+    sale_date: string;
+    unit_price: number | string;
+    quantity: number;
+    discount_value: number | string;
+    status: string;
+  }>>(revenue30Query ? () => revenue30Query : null, [revenue30Query], {
+    cacheKey: isAdmin ? `dash:rev30:${roleName}:${accessibleBizIds.join(',')}:${user?.id ?? '-'}` : undefined,
+    ttlMs: 60_000,
+  });
+  const revenue30 = useMemo(() => {
+    const byDate = new Map<string, number>();
+    const today = new Date();
+    const labels: string[] = [];
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(today.getTime() - i * 86400000);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      byDate.set(key, 0);
+      labels.push(key);
+    }
+    for (const s of recentSales ?? []) {
+      if (s.status !== 'completed') continue;
+      const prev = byDate.get(s.sale_date);
+      if (prev === undefined) continue;
+      byDate.set(s.sale_date, prev + Number(s.unit_price) * s.quantity - Number(s.discount_value));
+    }
+    return labels.map((label) => ({ label, revenue: byDate.get(label) ?? 0 }));
+  }, [recentSales]);
+  const maxRevenue30 = useMemo(() => Math.max(...revenue30.map((d) => d.revenue), 1), [revenue30]);
 
   const mySales = useMemo(() => sales ?? [], [sales]);
   const myTotalSales = mySales.filter((s) => s.status === 'completed').reduce((sum, s) => sum + Number(s.unit_price) * s.quantity - Number(s.discount_value), 0);
@@ -259,7 +331,7 @@ export function DashboardPage() {
           </h2>
           <p className="text-sm text-slate-500 mt-0.5">
             {roleDashboardBlurb(roleName, user?.business?.name, user?.branch?.name)}
-            {isSuperAdmin && ` â€” ${totalBusinesses} businesses, ${totalBranches} branches, ${totalStaff} staff`}
+            {isSuperAdmin && ` — ${totalBusinesses} businesses, ${totalBranches} branches, ${totalStaff} staff`}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -345,12 +417,103 @@ export function DashboardPage() {
         )}
       </div>
 
-      {isSuperAdmin && (
+      {isAdmin && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
           <MetricCard icon={<Package size={20} />} label="Products" value={String(allProducts?.length ?? 0)} subtitle={`${allProducts?.filter((p) => p.is_active).length ?? 0} active`} color="blue" />
-          <MetricCard icon={<AlertTriangle size={20} />} label="Out of Stock" value={String(emptyShelves?.length ?? 0)} subtitle="Empty shelves" color="rose" />
+          <MetricCard icon={<AlertTriangle size={20} />} label="Out of Stock" value={String(outOfStockCount)} subtitle="Zero on hand" color="rose" />
           <MetricCard icon={<Clock size={20} />} label="Pending Approvals" value={String(pendingUsers?.length ?? 0)} subtitle="Awaiting review" color="amber" />
           <MetricCard icon={<Users size={20} />} label="Roles Defined" value={String(roles?.length ?? 0)} subtitle="System roles" color="slate" />
+        </div>
+      )}
+
+      {isAdmin && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
+            <MetricCard icon={<DollarSign size={20} />} label="Stock Value" value={formatCurrency(stockValue)} subtitle="At unit cost" color="emerald" />
+            <MetricCard icon={<ShoppingCart size={20} />} label="Low Stock" value={String(lowStockCount)} subtitle="At or below minimum" color="amber" />
+            <MetricCard icon={<Package size={20} />} label="Units On Hand" value={formatNumber(totalStockUnits)} subtitle="Across all branches" color="blue" />
+            <MetricCard icon={<MapPin size={20} />} label="Holding Stock" value={String(stockByBranch.length)} subtitle="Branches with balances" color="slate" />
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 p-5">
+              <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2 mb-4">
+                <BarChart3 size={18} /> Stock by Branch
+              </h3>
+              <div className="space-y-3">
+                {stockByBranch.length > 0 ? stockByBranch.map((b) => (
+                  <div key={b.name} className="flex items-center gap-3">
+                    <div className="w-32 text-xs text-slate-600 truncate" title={b.name}>{b.name}</div>
+                    <div className="flex-1 h-3 bg-slate-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-blue-500 rounded-full transition-all duration-500" style={{ width: `${(b.qty / maxBranchQty) * 100}%` }} />
+                    </div>
+                    <div className="w-16 text-right text-xs font-semibold text-slate-900">{formatNumber(b.qty)}</div>
+                  </div>
+                )) : <p className="text-sm text-slate-400 text-center py-6">No stock balances yet</p>}
+              </div>
+            </div>
+            <div className="bg-white rounded-2xl border border-slate-200 p-5">
+              <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2 mb-4">
+                <Package size={18} /> Most Stocked Products
+              </h3>
+              <div className="space-y-2">
+                {topStockProducts.length > 0 ? topStockProducts.map((p, i) => (
+                  <div key={p.name} className="flex items-center justify-between p-2 rounded-xl hover:bg-slate-50 transition-colors">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="w-5 text-[10px] font-bold text-slate-400">#{i + 1}</span>
+                      <span className="text-xs font-medium text-slate-900 truncate">{p.name}</span>
+                    </div>
+                    <span className="text-xs font-semibold text-slate-900 whitespace-nowrap">{formatNumber(p.qty)}</span>
+                  </div>
+                )) : <p className="text-sm text-slate-400 text-center py-6">No stock yet</p>}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="bg-white rounded-2xl border border-slate-200 p-5">
+              <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2 mb-4">
+                <AlertTriangle size={18} /> Low Stock Watchlist
+              </h3>
+              <div className="space-y-2">
+                {lowStockRows.length > 0 ? lowStockRows.map((b, i) => (
+                  <div key={`${b.product?.id ?? i}-${b.branch?.id ?? i}`} className="flex items-center justify-between px-3 py-2 rounded-lg bg-amber-50 border border-amber-100">
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-slate-900 truncate">{b.product?.name ?? 'Product'}</p>
+                      <p className="text-[10px] text-slate-400">{b.branch?.name ?? 'Unassigned'}</p>
+                    </div>
+                    <span className={`text-xs font-bold whitespace-nowrap ${Number(b.current_stock) <= 0 ? 'text-rose-600' : 'text-amber-600'}`}>
+                      {formatNumber(Number(b.current_stock))} / min {formatNumber(Number(b.min_stock_level))}
+                    </span>
+                  </div>
+                )) : <p className="text-sm text-slate-400 text-center py-6">All products above minimum</p>}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-slate-200 p-5">
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+                  <BarChart3 size={18} /> Revenue - Last 30 Days
+                </h3>
+                <Badge className="bg-blue-100 text-blue-700 border-blue-200">{formatCurrency(revenue30.reduce((s, d) => s + d.revenue, 0))}</Badge>
+              </div>
+              <div className="flex items-end gap-[3px] h-32">
+                {revenue30.map((d) => (
+                  <div
+                    key={d.label}
+                    className="flex-1 bg-blue-500 rounded-t-sm transition-all duration-500 hover:bg-blue-600"
+                    style={{ height: `${d.revenue > 0 ? Math.max((d.revenue / maxRevenue30) * 100, 4) : 2}%` }}
+                    title={`${d.label}: ${formatCurrency(d.revenue)}`}
+                  />
+                ))}
+              </div>
+              <div className="flex items-center justify-between mt-2 text-[10px] text-slate-400">
+                <span>{revenue30[0]?.label.slice(5)}</span>
+                <span>Completed sales</span>
+                <span>{revenue30[revenue30.length - 1]?.label.slice(5)}</span>
+              </div>
+            </div>
+          </div>
         </div>
       )}
       {(isSuperAdmin || isAdmin) && bestSellingProducts.length > 0 && (
@@ -528,7 +691,7 @@ export function DashboardPage() {
                 <div className={`w-2 h-2 rounded-full shrink-0 ${report.status === 'submitted' ? 'bg-blue-500' : report.status === 'reviewed' ? 'bg-emerald-500' : report.status === 'draft' ? 'bg-amber-500' : 'bg-slate-400'}`} />
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-slate-900 truncate">{report.branch?.name}</p>
-                  <p className="text-xs text-slate-400">{report.business?.name} Â· {formatCurrency(Number(report.total_sales_value))} sales</p>
+                  <p className="text-xs text-slate-400">{report.business?.name} · {formatCurrency(Number(report.total_sales_value))} sales</p>
                 </div>
               </div>
               <Badge className={`capitalize ${report.status === 'draft' ? 'bg-gray-100 text-gray-600' : report.status === 'submitted' ? 'bg-blue-100 text-blue-700' : report.status === 'reviewed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{report.status}</Badge>

@@ -23,6 +23,23 @@ export function ReconciliationPage() {
   const [selectedPeriod, setSelectedPeriod] = useState<InventoryPeriod | null>(null);
   const [showPeriodModal, setShowPeriodModal] = useState(false);
   const [filterBranch, setFilterBranch] = useState('all');
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+
+  useEffect(() => { setPage(1); }, [filterBranch]);
+
+  const { data: myBusinessAssignments } = useSupabaseQuery<Array<{ business_id: string }>>(
+    user?.id ? () => supabase.from('user_business_assignments').select('business_id').eq('user_id', user?.id ?? '') : null,
+    [user?.id],
+    { cacheKey: `assign:biz:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
+  );
+  const accessibleBusinessIds = useMemo(() => {
+    if (isExecutive || !isBusinessLevel) return null;
+    const set = new Set<string>();
+    if (user?.business_id) set.add(user.business_id);
+    for (const a of myBusinessAssignments ?? []) if (a.business_id) set.add(a.business_id);
+    return [...set];
+  }, [isExecutive, isBusinessLevel, user?.business_id, myBusinessAssignments]);
 
   const { data: branches } = useSupabaseQuery<Branch[]>(
     () => supabase.from('branches').select('*').eq('is_active', true).order('name'),
@@ -35,14 +52,20 @@ export function ReconciliationPage() {
       .from('inventory_periods')
       .select(`*, branch:branches(id,name), business:businesses(id,name)`)
       .order('period_end', { ascending: false })
-      .limit(60);
+      .limit(200);
     if (!isExecutive && !isBusinessLevel && user?.branch_id) q = q.eq('branch_id', user.branch_id);
-    if (!isExecutive && isBusinessLevel && user?.business_id) q = q.eq('business_id', user.business_id);
+    if (!isExecutive && isBusinessLevel) {
+      if (accessibleBusinessIds && accessibleBusinessIds.length > 0) q = q.in('business_id', accessibleBusinessIds);
+      else if (user?.business_id) q = q.eq('business_id', user.business_id);
+    }
     if (filterBranch !== 'all') q = q.eq('branch_id', filterBranch);
     return q;
-  }, [isExecutive, isBusinessLevel, user, filterBranch]);
+  }, [isExecutive, isBusinessLevel, user, accessibleBusinessIds, filterBranch]);
 
   const { data: periods, loading, error, refetch } = useSupabaseQuery<InventoryPeriod[]>(() => periodsQuery, [periodsQuery]);
+
+  const periodRows = (periods ?? []).slice((page - 1) * pageSize, page * pageSize);
+  const periodTotalPages = Math.max(1, Math.ceil((periods ?? []).length / pageSize));
 
   if (selectedPeriod) {
     return (
@@ -81,7 +104,7 @@ export function ReconciliationPage() {
 
       {periods && periods.length > 0 ? (
         <div className="space-y-3">
-          {periods.map((p) => (
+          {periodRows.map((p) => (
             <div key={p.id} className="bg-white rounded-2xl border border-slate-200 p-5 hover:border-slate-300 cursor-pointer" onClick={() => setSelectedPeriod(p)}>
               <div className="flex items-center justify-between">
                 <div>
@@ -95,6 +118,16 @@ export function ReconciliationPage() {
               </div>
             </div>
           ))}
+          <div className="p-4 border-t border-slate-100">
+            <div className="flex flex-col sm:flex-row justify-between items-center gap-1 text-sm text-slate-500 text-center sm:text-left">
+              <span>Showing {(page - 1) * pageSize + 1} to {(page - 1) * pageSize + periodRows.length} of {periods.length} periods</span>
+              <span>Page {page} of {periodTotalPages}</span>
+            </div>
+            <div className="flex gap-2 justify-center mt-2">
+              <Button variant="ghost" onClick={() => setPage((v) => Math.max(1, v - 1))} disabled={page === 1}>Prev</Button>
+              <Button variant="ghost" onClick={() => setPage((v) => Math.min(periodTotalPages, v + 1))} disabled={page >= periodTotalPages}>Next</Button>
+            </div>
+          </div>
         </div>
       ) : (
         <EmptyState icon={<ClipboardCheck size={32} />} title="No reconciliation periods" description="Create a weekly period to reconcile stock per-product and track variances." action={canManage && <Button onClick={() => setShowPeriodModal(true)}><Plus size={18} /> New Period</Button>} />
@@ -222,6 +255,12 @@ function PeriodDetailView({ period, onBack, onRefresh }: { period: InventoryPeri
     return lines.filter((l) => (l.product as unknown as Product)?.name?.toLowerCase().includes(q) || (l.product as unknown as Product)?.sku?.toLowerCase().includes(q));
   }, [lines, search]);
 
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+  useEffect(() => { setPage(1); }, [search, period.id]);
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+
   const pendingVariances = variances?.filter(v=>v.approval_status==='pending') ?? [];
   const totalVarianceQty = variances?.reduce((s,v)=> s+Math.abs(v.variance_quantity),0) ?? 0;
 
@@ -322,7 +361,7 @@ function PeriodDetailView({ period, onBack, onRefresh }: { period: InventoryPeri
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {filtered.map((l) => {
+              {pageRows.map((l) => {
                 const prod = l.product as unknown as Product;
                 const variance = l.physical_closing_quantity !== null ? l.physical_closing_quantity - l.expected_closing_quantity : null;
                 const hasVariance = variance !== null && variance !== 0;
@@ -361,6 +400,18 @@ function PeriodDetailView({ period, onBack, onRefresh }: { period: InventoryPeri
             </tbody>
           </table>
         </div>
+        {filtered.length > 0 && (
+          <div className="p-4 border-t border-slate-100">
+            <div className="flex flex-col sm:flex-row justify-between items-center gap-1 text-sm text-slate-500 text-center sm:text-left">
+              <span>Showing {(page - 1) * pageSize + 1} to {(page - 1) * pageSize + pageRows.length} of {filtered.length} product lines</span>
+              <span>Page {page} of {totalPages}</span>
+            </div>
+            <div className="flex gap-2 justify-center mt-2">
+              <Button variant="ghost" onClick={() => setPage((v) => Math.max(1, v - 1))} disabled={page === 1}>Prev</Button>
+              <Button variant="ghost" onClick={() => setPage((v) => Math.min(totalPages, v + 1))} disabled={page >= totalPages}>Next</Button>
+            </div>
+          </div>
+        )}
       </div>
 
       {variances && variances.length>0 && (
