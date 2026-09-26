@@ -61,6 +61,7 @@ export function TransfersPage() {
 
   // Branches this user can act for — mirrors my_branch_ids() server-side.
   const myBranchIds = useMemo(() => {
+    if (user?.accessible_branch_ids) return new Set(user.accessible_branch_ids);
     const ids = new Set<string>();
     if (user?.branch_id) ids.add(user.branch_id);
     for (const id of user?.branch_assignment_ids ?? []) if (id) ids.add(id);

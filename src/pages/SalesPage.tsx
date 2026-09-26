@@ -32,6 +32,7 @@ export function SalesPage() {
   // my_branch_ids() in the database); daily_sales RLS enforces the same rule.
   const accessibleBranchIds = useMemo(() => {
     if (isExecutive) return [] as string[];
+    if (user?.accessible_branch_ids) return user.accessible_branch_ids;
     const set = new Set<string>();
     if (user?.branch_id) set.add(user.branch_id);
     for (const id of user?.branch_assignment_ids ?? []) if (id) set.add(id);

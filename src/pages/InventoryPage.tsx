@@ -40,6 +40,7 @@ export function InventoryPage() {
   // my_branch_ids() in the database); RLS enforces the same rule.
   const accessibleBranchIds = useMemo(() => {
     if (hasRole(user, 'super_admin')) return [] as string[];
+    if (user?.accessible_branch_ids) return user.accessible_branch_ids;
     const ids = new Set<string>();
     if (user?.branch_id) ids.add(user.branch_id);
     for (const id of user?.branch_assignment_ids ?? []) if (id) ids.add(id);

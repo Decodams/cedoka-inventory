@@ -1,35 +1,49 @@
 ﻿# Cedoka Inventory - Session Summary
 
 ## Objective
-Implement the user's **ADMIN/MANAGER/BRANCH & INVENTORY ACCESS-CONTROL SPECIFICATION** (33 sections): strict multi-tenant authorization enforced at DB/backend level (Business → Location → Branch hierarchy, one-admin-per-branch, branch isolation, IDOR prevention, audited movements, SQL authorization tests), not mere UI visibility.
+**Round 1 (committed `93d673e`)**: ADMIN/MANAGER/BRANCH & INVENTORY ACCESS-CONTROL SPEC (33 sections) — strict multi-tenant RLS (Business → Location → Branch, one-admin-per-branch, IDOR prevention, audited movements, SQL tests). COMPLETE and pushed.
+
+**Round 2 (current, UNCOMMITTED)**: 9-phase master plan — (1) restore records "removed" by the strict-RLS migration `202609180004` (visibility collapse, not data loss), (2) oversight-vs-ownership architecture (business/location/branch oversight; My Records vs Overseen Records), (3) Super Admin command-centre dashboard, harden deletion with soft-delete tombstones, then UX/tests. Safe, non-destructive enhancement of the live app.
 
 ## Verified Ground Truth
-- Stack: React/TS + Vite + Tailwind + Supabase (Postgres/RLS/Edge Functions/RPCs); Vercel → cedoka-inventory.vercel.app; remote `https://github.com/Decodams/cedoka-inventory.git`; branch `main` at `55ff9ff`
-- Project ref `erxhhqrzxgsklyhsuulx`; CLI v2.115.0
-- `supabase db query --linked "<SQL>"` returns only the LAST result set — run checks as separate calls; `--file/-f` exists; without `--linked` it tries local Docker (not running). NOTICEs from DO blocks are NOT surfaced by the CLI — assert via a final `SELECT` row
-- Gate: `npx tsc -p tsconfig.app.json --noEmit`, `npx eslint .`, `npm run build` — all pass; 3 allowed pre-existing warnings: ReceiptPDF.tsx:7, AuthContext.tsx:284 react-refresh, SalesPage.tsx:224 exhaustive-deps (`selectedProduct`)
-- `tsconfig.app.json` has `"include": ["src"]` → supabase/ NOT type-checked by frontend gate
+- React/TS + Vite + Tailwind + Supabase (Postgres/RLS/Edge Functions/RPCs); Vercel → cedoka-inventory.vercel.app; remote `https://github.com/Decodams/cedoka-inventory.git`; branch `main` at `93d673e`
+- Project ref `erxhhqrzxgsklyhsuulx`; CLI v2.115.0; **Docker NOT installed** (no `db dump`; use `supabase db query --linked` only)
+- `db query --linked` returns only the LAST result set; SQL starting with `--` parsed as flags (prepend `SELECT 1;`); PowerShell strips embedded `"` from native args — build claim JSON server-side via `json_build_object('sub',...,'role','authenticated')::text`; NOTICEs from DO blocks NOT surfaced by CLI (final result row only) — suite ends with `result: ALL TESTS PASSED` row
+- Gate: `npx tsc -p tsconfig.app.json --noEmit`, `npx eslint .`, `npm run build` — all pass; 3 allowed warnings: ReceiptPDF.tsx:7, AuthContext react-refresh, SalesPage exhaustive-deps (`selectedProduct`); `tsconfig.app.json` includes only `src`
 - Do NOT commit/push until user explicitly says so; update `.opencode/summary.md` before each commit
-- User design decisions: (1) Location layer = `business_locations` + `branches.location_id`; (2) branch-scoped products (`products.branch_id`, UNIQUE(business_id, branch_id, sku)); (3) SQL auth tests as single `BEGIN; … ROLLBACK;` with `SET ROLE authenticated` + `set_config('request.jwt.claims','{"sub":"<uuid>","role":"authenticated"}',true)`, DO-block assertions, final confirmation row
-- Migrations 202609180001–0004 APPLIED via `supabase db push`; 6 edge functions DEPLOYED: manage-product, create-user-account, update-user-role, update-user-status, delete-user, manage-category
-- Live IDs: super `f87e2e5f-c52e-4b9f-8ac0-d9ce3601c6f2`; roles: super_admin `64583bc8-…`, admin `3f94bd78-…`, manager `a9a24d5e-…`, sales_person `fa31bf7d-…`, inventory_officer `00000000-0000-0000-0000-000000000007` (test SQL uses `(SELECT id FROM roles WHERE name='…')` subselects)
-- Permission checks live-verified: admin = audit.view, inventory.manage, products.manage, sales.create, transfers.manage, users.manage_branch, users.manage_business; manager = inventory/products/sales/transfers.manage + users.manage_branch; inventory_officer = inventory.manage + transfers.manage; sales_person = sales.create only
-- Error messages: 'Branch is outside your scope' / 'Product does not belong to this branch' / 'Quantity must be greater than zero' / 'outside your assigned scope' / 'not stocked at this branch' / 'Transfers permission required' / 'destination branch' / 'already has an Admin' (23505) / 'cannot change your own role, scope, or status' (42501) / 'cannot deactivate administrators' / 'own account' / 'outside your branch scope' / product branch immutability = ERRCODE 23514 `check_violation` with 'cannot be changed'
-- All scope helpers are SECURITY DEFINER → no RLS recursion; live pg_policies verified strict (no stale loose SELECT policies); no triggers on auth.users; `user_profiles.id` FK → `auth.users(id)`
-- Trigger order note: `enforce_one_admin_per_branch_profile` (alphabetical) fires BEFORE `prevent_self_scope_change` — self-move to an OCCUPIED branch raises 23505, not 42501; tests must target a vacant branch to isolate the self-scope guard
+- **Known out-of-scope hole**: `update-user-status` edge fn only scope-checks admins, not managers (rank check exists) — left unchanged to not break approved suite
+- Baseline counts (round-2 start): 17 non-empty tables, ~293 rows; products 2 live + 3 tombstones reconstructed = 5
+- Impersonation pattern: `SELECT set_config('request.jwt.claims', json_build_object(...), false); SET ROLE authenticated; SELECT ...`
 
-## Work State - COMPLETED (access-control round, NOT committed)
-- Migrations A–D written + applied: `202609180001_org_location_hierarchy`, `202609180002_branch_scoped_products`, `202609180003_one_admin_per_branch`, `202609180004_strict_branch_scope_rls` (strict helpers `branch_in_business`/`product_at_branch`/`same_business_branches`/strict `can_access_branch`/`my_branch_ids`/`can_view_user_records`/`can_manage_inventory_period`; policy rewrites for user_profiles/audit/roles/categories/suppliers/units/balances/txns/transfers/items/PR/GRN/serials/sales/weekly_reports/activities/issues/expenses; RPC hardening of `record_inventory_movement`/`create_sale_with_items`/`record_grn_with_items`/`advance_stock_transfer`/`deactivate_user`/`activate_user`; `sales.cancel` seed; audit_log scope columns + fill trigger)
-- Edge functions scope-validated + deployed (all 6); update-user-role got target-scope check (target branch in accessibleBranches / branch-less target in accessibleBusinesses)
-- Frontend pass DONE (gates pass): rbac (strict canAccessBranch, super-only canManageBranches); AuthContext managed-branches merge; audit.ts optional scope param; Dashboard/Products/Transfers/Inventory/Sales/UserManagement/BusinessBranch pages branch-scoped; ProductsPage Branch column + branch-required form + branch-scoped duplicate check; TransfersPage `advance_stock_transfer` RPC + side gating + branch-filtered product loader; UserManagement inActorScope + myBranchIds-scoped branch dropdowns; BusinessBranchPage super-only writes; database.ts Product gains `branch_id` + `branch?`
-- **`supabase/tests/authorization_test.sql` WRITTEN AND PASSING** (`supabase db query --linked -f supabase/tests/authorization_test.sql` → `ALL TESTS PASSED`): §27A business isolation, §27B locations, §27C branch isolation (products/balances/txns writes + immutability), §27D one-admin-per-branch (23505 on insert/move/assignment) + self-scope (42501), §27E IDOR (user_profiles blind-writes, roles, categories, sales scope/mismatch, transfers creation/sides/permission, deactivate_user messages), §27F audited movements (movement success/attribution/stock math, sale + txn + scoped audit row, deactivation audit, audit insert actor+branch scope, cross-tenant invisibility), SUPER positive controls; single transaction, ROLLBACK clean (0 fixture residue verified)
+## Roster / IDs (live)
+- Julia admin `afa6e895-92c2-4e60-9c3a-5b07da177f6d` (primary Asaba); Samuel Dim admin `abfc1c33-a599-4e73-8fef-a49c92eab80f` (primary Awka); Mercy manager `76bb8fa1-e143-4b68-88dd-b2fd568e94b2` (Ejigbo, 1 oversight row); Super `f87e2e5f-c52e-4b9f-8ac0-d9ce3601c6f2`; martin Luter supervisor `7d93bb03-1382-4267-8fdd-89f8aec491fc` (INACTIVE, Farm/Okanran)
+- Businesses: Electronics `9ad5a468-2b61-40ad-b356-86e0722abe79`, Farm `ccd75ce5-66ff-43cb-878f-2087ac156458`, Default `0323311a-3fa1-4da1-b5b1-790791936191`, 4th `c8714478-a077-4c53-84d9-57886837c73b` (untouched)
+- Branches: Asaba `b96d1dce-4286-440b-9670-0df6bf198f6a`, Awka `41c060f0-a79d-4b95-ac14-249ce498a557`, Ejigbo `1cc8eff7-bb45-4ae0-9266-a151fa251288`; Okanran `e1e10a5c-36a6-46d0-935a-5d7ca0513940`, Okeafo `e0ddf2fb-e81d-4d27-909d-920ed90dd29f`; Default `0993346a-f534-40ae-8aa8-a4b409ee5989`
+- `user_business_assignments`: Samuel→Electronics, Julia→Electronics, Julia→Farm (kept — drives Julia's Farm oversight)
+- Semantics: `user_branch_assignments` = unlimited OVERSIGHT grants; one-admin-per-branch enforced ONLY on `user_profiles.branch_id` (primary); business oversight = admin sees all branches/records/staff of the business (fellow admin visible via branch overlap but NEVER editable); managers/staff strict; tombstones visible only to admin/super
 
-## Files changed (this round)
-- `supabase/migrations/202609180001..0004_*.sql` (applied)
-- `supabase/functions/`: manage-product, create-user-account, update-user-role, update-user-status, delete-user, manage-category (deployed)
-- `supabase/tests/authorization_test.sql` (NEW, passing)
-- `src/lib/rbac.ts`, `src/lib/audit.ts`, `src/context/AuthContext.tsx`, `src/types/database.ts`
-- `src/pages/`: DashboardPage, ProductsPage, TransfersPage, InventoryPage, SalesPage, UserManagementPage, BusinessBranchPage
+## Work State - COMPLETED (round 2, NOT committed)
+- **Phase 0 backup**: SQL-exporter (temp: `C:\Users\Osmaxin\AppData\Local\Temp\opencode\export_backup.sql`, UNION ALL via `jsonb_each(to_jsonb(t))`) → `.opencode/backups/pre_restore_20260926.sql` (71,133 B, 294 lines)
+- **Migration E** `202609190001_restore_oversight_scope.sql` (APPLIED): `user_location_assignments` + select RLS; `can_access_branch`/`my_branch_ids` (super | primary | assignments | managed | location oversight | admin business clause); `user_profiles_select_scoped`/`update_scoped` rebuilt (admin business-wide, admins excluded unless branch overlap); assets/asset_movements policies → branch-scoped; `branch_has_other_admin` → primary-only; dropped assignment-form trigger
+- **Migration F** `202609190002_product_soft_delete.sql` (APPLIED): `products.deleted_at/deleted_by`, partial index, tombstone-select policy, frozen update
+- **Migration G** `202609190003_products_soft_delete_transition.sql` (APPLIED — written after suite caught the bug): drops `deleted_at IS NULL` from WITH CHECK only (soft-delete transition allowed for products.manage+scope; USING still freezes tombstones; edge fn unaffected as service_role)
+- **Impersonation matrix PASSED**: Samuel=Asaba,Awka,Ejigbo/2 products/5 assets/1 business; Julia=+Okanran,Okeafo/2 businesses/sees Julia,martin,Mercy+Samuel (post-primary DML)/Super hidden; Mercy=Ejigbo only/0 products/0 assets; Super=all/5 profiles; tombstones: Mercy 0, Super 3
+- **Phase 2 DML** (idempotent, applied): primaries Julia=Asaba, Samuel=Awka; locations renamed (Anambra/Delta/Lagos, Ogun/Lagos) + branches relinked; 3 tombstones reconstructed from audit_log (`metadata.reconstructed=true`, ids `e3a3b69a…` Itel Power Tank, `342e66f3…` Power Go, `53556b9f…` Power Go, sku NULL, Awka)
+- **Edge functions edited + all 5 deployed**: manage-product (admin business expansion + soft delete + 409 on tombstone), create-user-account, update-user-role, update-user-status, delete-user (admin business-wide branch expansion)
+- **Frontend scope plumbing** (TSC green): `UserProfile.accessible_branch_ids` + `Product.deleted_at/deleted_by` in database.ts; AuthContext fetches `rpc('my_branch_ids')` (fallback `branch_assignment_ids`); Dashboard/Inventory/Sales/Products pages prefer `accessibleBranchIds`; Transfers/UserManagement `myBranchIds`
+- **ProductsPage**: `showDeleted` toggle (canDeleteProduct) + `.is('deleted_at', null)` filter + cacheKey; Deleted badge; row actions hidden for tombstones; `handleDelete` unified to `manage-product` invoke with direct soft-delete fallback (no window.confirm/hard delete); inline confirm panel in modal footer; ProductFormModal business picker honors `business_assignment_ids`
+- **DashboardPage**: scope split (mine/overseen/all — `overseenBranchIds`=accessible−primary) wired into branches/reports/issues/balances/revenue queries + cacheKeys; segmented control; allProducts excludes tombstones; Super command centre: Open Transfers/Low Stock/Stock Value/Active Products KPIs, Business Breakdown table, Recent Activity feed (audit_log last 8)
+- **Suite REWRITTEN + PASSING** (`supabase db query --linked -f supabase/tests/authorization_test.sql` → `ALL TESTS PASSED`, ROLLBACK): 27A business isolation; 27B locations; 27C oversight (admin sees 3 branches/2 products/2 balances, creates product at A2 — positive; foreign business still denied); 27D primary-only one-admin + oversight assignment positive; 27E directory business-scoped, fellow-admin visible-but-ineditable, blind writes 0 rows; 27F audited movements; **27G NEW**: location grant widens/revoke collapses visibility, hard delete blocked (0 rows), soft delete creates frozen tombstone, admin/overseeing-admin see tombstone, staff/manager never; SUPER controls; final row `ALL TESTS PASSED`
+- **Post-suite verification**: residue clean (products 5 = 3 tombstones, users 5, businesses 4, branches 6, locations 7, audit 34, daily_sales 0); full gate green (tsc OK, eslint 0 errors/3 warnings, build ✓ 22.7s)
+- **Reports scoping check**: no ReportsPage — `WeeklyReportsPage`/`ReportTypesPage` rely on RLS-only scoping (businesses/branches/weekly_reports/report_types policies) — acceptable per plan
+
+## Files changed (round 2)
+- `supabase/migrations/202609190001_restore_oversight_scope.sql`, `202609190002_product_soft_delete.sql`, `202609190003_products_soft_delete_transition.sql` (all applied)
+- `.opencode/backups/pre_restore_20260926.sql` (backup)
+- `supabase/functions/`: manage-product, create-user-account, update-user-role, update-user-status, delete-user (deployed)
+- `supabase/tests/authorization_test.sql` (rewritten, passing)
+- `src/context/AuthContext.tsx`, `src/types/database.ts`
+- `src/pages/`: DashboardPage, ProductsPage, InventoryPage, SalesPage, TransfersPage, UserManagementPage
 
 ## Next Move
-- Gate green (tsc/eslint/build) and `authorization_test.sql` passing; committing and pushing this round per user instruction
+- Round 2 is verified end-to-end (suite + gate + residue). Remaining optional items: responsive pass on changed pages, hierarchical assignment UI — then commit when user approves.

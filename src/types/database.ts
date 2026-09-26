@@ -128,6 +128,12 @@ export interface UserProfile {
   business_assignment_ids?: string[];
   /** Branch IDs this user is explicitly assigned to (multi-branch oversight). */
   branch_assignment_ids?: string[];
+  /**
+   * Server-computed branch scope from my_branch_ids() — the single source of
+   * truth (primary + oversight assignments + managed + location/business
+   * oversight for Admins). null until the RPC has resolved.
+   */
+  accessible_branch_ids?: string[] | null;
 }
 
 export interface Category {
@@ -193,6 +199,9 @@ export interface Product {
   supplier?: Supplier;
   business?: Business;
   branch?: Branch;
+  /** Soft-delete tombstone: set when the product was deleted (spec section 12). */
+  deleted_at?: string | null;
+  deleted_by?: string | null;
 }
 
 export interface InventoryBalance {

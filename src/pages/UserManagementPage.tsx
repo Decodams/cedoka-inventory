@@ -108,6 +108,7 @@ export function UserManagementPage() {
   // actor's branches; legacy branch-less targets must be in an accessible
   // business.
   const myBranchIds = (() => {
+    if (user?.accessible_branch_ids) return [...user.accessible_branch_ids];
     const set = new Set<string>();
     if (user?.branch_id) set.add(user.branch_id);
     for (const id of user?.branch_assignment_ids ?? []) if (id) set.add(id);
@@ -326,6 +327,7 @@ function EditUserModal({
   const isMultiBusinessRole = roleNameForForm === 'admin';
 
   const myBranchIds = useMemo(() => {
+    if (currentUser?.accessible_branch_ids) return [...currentUser.accessible_branch_ids];
     const set = new Set<string>();
     if (currentUser?.branch_id) set.add(currentUser.branch_id);
     for (const id of currentUser?.branch_assignment_ids ?? []) if (id) set.add(id);
@@ -541,6 +543,7 @@ function CreateUserModal({
   void autoDetectedBusinessId;
 
   const myBranchIdsCreate = useMemo(() => {
+    if (currentUser?.accessible_branch_ids) return [...currentUser.accessible_branch_ids];
     const set = new Set<string>();
     if (currentUser?.branch_id) set.add(currentUser.branch_id);
     for (const id of currentUser?.branch_assignment_ids ?? []) if (id) set.add(id);

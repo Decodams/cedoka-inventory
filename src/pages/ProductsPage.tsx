@@ -32,6 +32,7 @@ export function ProductsPage() {
   const [page, setPage] = useState(1);
   const pageSize = 10;
   const [detail, setDetail] = useState<Product | null>(null);
+  const [showDeleted, setShowDeleted] = useState(false);
 
   useEffect(() => { setPage(1); }, [search, filterBusiness, user?.business_id]);
 
@@ -79,6 +80,7 @@ export function ProductsPage() {
   // role below Super Admin only sees products stocked at their branches.
   const accessibleBranchIds = useMemo(() => {
     if (isExecutive) return [] as string[];
+    if (user?.accessible_branch_ids) return user.accessible_branch_ids;
     const set = new Set<string>();
     if (user?.branch_id) set.add(user.branch_id);
     for (const id of user?.branch_assignment_ids ?? []) if (id) set.add(id);
@@ -105,6 +107,8 @@ export function ProductsPage() {
     // Branch scope first (RLS enforces the same rule; this keeps the request
     // precise and the UI consistent for every non-super role).
     if (branchScoped) q = q.in('branch_id', accessibleBranchIds);
+    // Tombstones stay hidden unless an Admin explicitly asks to review them.
+    if (!showDeleted) q = q.is('deleted_at', null);
     if (filterBusiness !== 'all') q = q.eq('business_id', filterBusiness);
     // Search runs server-side across the whole catalog (not just this page).
     const needle = search.trim();
@@ -113,12 +117,12 @@ export function ProductsPage() {
       if (safe) q = q.or(`name.ilike.%${safe}%,sku.ilike.%${safe}%,brand.ilike.%${safe}%`);
     }
     return q;
-  }, [branchScoped, accessibleBranchIds, filterBusiness, search, page, pageSize]);
+  }, [branchScoped, accessibleBranchIds, showDeleted, filterBusiness, search, page, pageSize]);
 
   const { data: products, loading, error, count, refetch } = useSupabaseQuery<Product[]>(
     () => productsQuery,
     [productsQuery],
-    { cacheKey: `products:${user?.id ?? 'anon'}:${user?.branch_id ?? '-'}:${filterBusiness}:${accessibleBranchIds.join(',')}:${page}:${search.trim().toLowerCase()}` },
+    { cacheKey: `products:${user?.id ?? 'anon'}:${user?.branch_id ?? '-'}:${filterBusiness}:${accessibleBranchIds.join(',')}:${page}:${search.trim().toLowerCase()}:${showDeleted ? 'del' : 'live'}` },
   );
 
   // Global serial search: find products by serial number across the catalog.
@@ -232,6 +236,16 @@ export function ProductsPage() {
             {visibleBusinesses.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </Select>
         )}
+        {canDeleteProduct && (
+          <Button
+            variant="outline"
+            onClick={() => { setShowDeleted((v) => !v); setPage(1); }}
+            className={showDeleted ? 'border-rose-300 text-rose-700 bg-rose-50' : ''}
+            title="Show or hide deleted products (an audit record is kept for each deletion)"
+          >
+            <Trash2 size={16} /> {showDeleted ? 'Hide deleted' : 'Show deleted'}
+          </Button>
+        )}
       </div>
 
       {filtered.length > 0 ? (
@@ -301,12 +315,16 @@ export function ProductsPage() {
                         )}
                       </td>
                       <td className="px-3 py-3 sm:px-5">
-                        <Badge className={p.is_active ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-gray-100 text-gray-500 border-gray-200'}>
-                          {p.is_active ? 'Active' : 'Inactive'}
-                        </Badge>
+                        {p.deleted_at ? (
+                          <Badge className="bg-rose-50 text-rose-600 border-rose-200">Deleted</Badge>
+                        ) : (
+                          <Badge className={p.is_active ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-gray-100 text-gray-500 border-gray-200'}>
+                            {p.is_active ? 'Active' : 'Inactive'}
+                          </Badge>
+                        )}
                       </td>
                       <td className="px-3 py-3 sm:px-5 text-right">
-                        {canManage && (
+                        {canManage && !p.deleted_at && (
                           <div className="inline-flex items-center gap-1">
                             <button
                               onClick={(e) => { e.stopPropagation(); toggleProductActive(p); }}
@@ -858,13 +876,18 @@ function ProductFormModal({
   businesses: Business[];
   measurementUnits: BusinessMeasurementUnit[];
   allProducts: Product[];
-  currentUser: { role?: { name: string }; business_id: string | null; branch_id?: string | null } | null;
+  currentUser: { id?: string; role?: { name: string }; business_id: string | null; branch_id?: string | null; business_assignment_ids?: string[] } | null;
   canDelete: boolean;
   onClose: () => void;
   onSaved: (message?: string) => void;
 }) {
   const isExecutive = currentUser?.role?.name === 'super_admin';
-  const availableBusinesses = isExecutive ? businesses : businesses.filter((b) => b.id === currentUser?.business_id);
+  const availableBusinesses = isExecutive
+    ? businesses
+    : currentUser?.business_assignment_ids && currentUser.business_assignment_ids.length > 0
+      ? businesses.filter((b) => (currentUser.business_assignment_ids ?? []).includes(b.id))
+      : businesses.filter((b) => b.id === currentUser?.business_id);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const [name, setName] = useState(product?.name ?? '');
   const [businessId, setBusinessId] = useState(product?.business_id ?? currentUser?.business_id ?? '');
@@ -1231,41 +1254,20 @@ function ProductFormModal({
 
   const handleDelete = async () => {
     if (!product) return;
-    // Super Admin deletes go through the organization engine: clean products
-    // are removed, ones with sales history move to Default (deactivated).
-    if (hasRole(currentUser as UserProfile | null, 'super_admin')) {
-      if (!window.confirm(`Permanently delete product "${product.name}"? Items with sales history move to Default (deactivated) so records stay intact. This cannot be undone.`)) return;
-      setSaving(true);
-      setError(null);
-      const { data: orgData, error: orgError } = await supabase.functions.invoke('delete-organization', {
-        body: { p_entity: 'product', p_id: product.id },
-      });
-      if (!orgError) {
-        setSaving(false);
-        onSaved((orgData as { deactivated?: boolean } | null)?.deactivated
-          ? 'Product has sales history, so it was moved to Default and deactivated.'
-          : 'Product deleted successfully.');
-        return;
-      }
-      if (!String(orgError.message || '').includes('Failed to send a request')) {
-        setError(await edgeErrorMessage(orgError, 'Could not delete the product.'));
-        setSaving(false);
-        return;
-      }
-      // Edge unreachable: fall through to the manage-product path below.
-    } else if (!window.confirm(`Delete product "${product.name}"? Products with sales history will be deactivated instead.`)) return;
     setSaving(true);
     setError(null);
-
-    // Primary path: manage-product edge function (handles history check + RLS).
+    // Unified soft delete (spec section 12): the row becomes a tombstone and
+    // audit_log keeps the permanent "existed and deleted" record — for every
+    // role including Super Admin.
     const { data: edgeData, error: fnError } = await supabase.functions.invoke('manage-product', {
       body: { p_action: 'delete', p_product_id: product.id },
     });
     if (!fnError) {
       setSaving(false);
+      setConfirmingDelete(false);
       onSaved((edgeData as { deactivated?: boolean } | null)?.deactivated
         ? 'Product has sales history, so it was deactivated instead of deleted.'
-        : 'Product deleted successfully.');
+        : 'Product deleted. A permanent deletion record remains in the audit trail.');
       return;
     }
     if (!String(fnError.message || '').includes('Failed to send a request')) {
@@ -1273,32 +1275,21 @@ function ProductFormModal({
       setSaving(false);
       return;
     }
-    // Fallback: direct write (deactivate when there is history, since products
-    // have no direct-delete policy).
-    const { data: salesUsing } = await supabase.from('daily_sales').select('id').eq('product_id', product.id).limit(1);
-    const { data: itemsUsing } = await supabase.from('sale_items').select('id').eq('product_id', product.id).limit(1);
-    const hasSalesHistory = (salesUsing && salesUsing.length > 0) || (itemsUsing && itemsUsing.length > 0);
-
-    if (hasSalesHistory) {
-      const { error: deactErr } = await supabase.from('products').update({ is_active: false }).eq('id', product.id);
-      if (deactErr) {
-        setError(`Could not deactivate product: ${deactErr.message}`);
-        setSaving(false);
-        return;
-      }
+    // Edge unreachable: soft-delete directly (products.manage holders pass the
+    // UPDATE policy; the row stays as a tombstone instead of being removed).
+    const { error: softErr } = await supabase.from('products').update({
+      deleted_at: new Date().toISOString(),
+      deleted_by: currentUser?.id ?? null,
+      is_active: false,
+    }).eq('id', product.id).is('deleted_at', null);
+    if (softErr) {
+      setError(`Could not delete product: ${softErr.message}. Ask a Super Admin to deploy the manage-product function.`);
       setSaving(false);
-      onSaved('Product has sales history, so it was deactivated instead of deleted.');
       return;
-    } else {
-      const { error: delErr } = await supabase.from('products').delete().eq('id', product.id);
-      if (delErr) {
-        setError(`Could not delete product: ${delErr.message}. Ask a Super Admin to deploy the manage-product function.`);
-        setSaving(false);
-        return;
-      }
-      setSaving(false);
-      onSaved('Product deleted successfully.');
     }
+    setSaving(false);
+    setConfirmingDelete(false);
+    onSaved('Product deleted. A permanent deletion record remains in the audit trail.');
   };
 
   return (
@@ -1600,16 +1591,32 @@ function ProductFormModal({
         {error && <p className="text-sm text-rose-600">{error}</p>}
         <div className="flex justify-between gap-3 pt-2">
           <div>
-            {product && canDelete && (
-              <Button variant="ghost" onClick={handleDelete} disabled={saving} className="text-rose-600 hover:text-rose-700">
+            {product && canDelete && !confirmingDelete && (
+              <Button variant="ghost" onClick={() => setConfirmingDelete(true)} disabled={saving} className="text-rose-600 hover:text-rose-700">
                 <Trash2 size={16} /> Delete
               </Button>
             )}
+            {product && canDelete && confirmingDelete && (
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 max-w-xl">
+                <span className="text-xs text-rose-700">
+                  Delete &ldquo;{product.name}&rdquo;? It disappears from listings; a permanent deletion record
+                  stays in the audit trail so its history is never lost.
+                </span>
+                <Button variant="outline" onClick={() => setConfirmingDelete(false)} disabled={saving} className="text-xs px-2 py-1">
+                  Cancel
+                </Button>
+                <Button onClick={handleDelete} disabled={saving} className="text-xs px-2 py-1 bg-rose-600 hover:bg-rose-700 border-rose-600">
+                  {saving ? 'Deleting...' : 'Yes, delete'}
+                </Button>
+              </div>
+            )}
           </div>
-          <div className="flex gap-3">
-            <Button variant="outline" onClick={onClose}>Cancel</Button>
-            <Button onClick={handleSave} disabled={saving}>{saving ? 'Saving...' : 'Save'}</Button>
-          </div>
+          {!confirmingDelete && (
+            <div className="flex gap-3">
+              <Button variant="outline" onClick={onClose}>Cancel</Button>
+              <Button onClick={handleSave} disabled={saving}>{saving ? 'Saving...' : 'Save'}</Button>
+            </div>
+          )}
         </div>
       </div>
     </Modal>

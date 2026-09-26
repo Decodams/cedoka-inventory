@@ -179,13 +179,18 @@ DECLARE
   v_count int;
   v_rows int;
 BEGIN
-  -- admin@A1: branches
+  -- admin@A1: branches — business oversight: every branch of Business A
+  -- (A1, A2 and the vacant A3), never Business B (spec sections 5, 9).
   PERFORM set_config('request.jwt.claims', '{"sub":"aaaaaaaa-0000-4000-8000-000000000031","role":"authenticated"}', true);
   SELECT count(*) INTO v_count FROM public.branches;
-  IF v_count <> 1 OR NOT EXISTS (SELECT 1 FROM public.branches WHERE id = 'aaaaaaaa-0000-4000-8000-000000000021') THEN
-    RAISE EXCEPTION 'TEST FAILED: 27C admin sees % branches (expected exactly own branch)', v_count;
+  IF v_count <> 3
+     OR NOT EXISTS (SELECT 1 FROM public.branches WHERE id = 'aaaaaaaa-0000-4000-8000-000000000021')
+     OR NOT EXISTS (SELECT 1 FROM public.branches WHERE id = 'aaaaaaaa-0000-4000-8000-000000000022')
+     OR NOT EXISTS (SELECT 1 FROM public.branches WHERE id = 'aaaaaaaa-0000-4000-8000-000000000024')
+     OR EXISTS (SELECT 1 FROM public.branches WHERE id = 'aaaaaaaa-0000-4000-8000-000000000023') THEN
+    RAISE EXCEPTION 'TEST FAILED: 27C admin sees % branches (expected exactly the 3 business-A branches)', v_count;
   END IF;
-  RAISE NOTICE 'PASS 27C.1: admin sees exactly own branch';
+  RAISE NOTICE 'PASS 27C.1: admin oversees every branch of the own business only';
 
   BEGIN
     INSERT INTO public.branches (business_id, name)
@@ -202,20 +207,20 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS 27C.3: admin cannot edit branch registry rows';
 
-  -- admin@A1: products
+  -- admin@A1: products — oversight covers A1 + A2, never Business B.
   SELECT count(*) INTO v_count FROM public.products;
-  IF v_count <> 1 OR NOT EXISTS (SELECT 1 FROM public.products WHERE id = 'aaaaaaaa-0000-4000-8000-000000000041') THEN
-    RAISE EXCEPTION 'TEST FAILED: 27C admin sees % products (expected only own-branch product)', v_count;
+  IF v_count <> 2
+     OR NOT EXISTS (SELECT 1 FROM public.products WHERE id = 'aaaaaaaa-0000-4000-8000-000000000041')
+     OR NOT EXISTS (SELECT 1 FROM public.products WHERE id = 'aaaaaaaa-0000-4000-8000-000000000042')
+     OR EXISTS (SELECT 1 FROM public.products WHERE id = 'aaaaaaaa-0000-4000-8000-000000000043') THEN
+    RAISE EXCEPTION 'TEST FAILED: 27C admin sees % products (expected both business-A products, no foreign ones)', v_count;
   END IF;
-  RAISE NOTICE 'PASS 27C.4: admin sees exactly own-branch products';
+  RAISE NOTICE 'PASS 27C.4: admin sees every product of the own business only';
 
-  BEGIN
-    INSERT INTO public.products (business_id, branch_id, name, unit)
-    VALUES ('aaaaaaaa-0000-4000-8000-000000000001', 'aaaaaaaa-0000-4000-8000-000000000022', 'AZ Rogue Product A2', 'pcs');
-    RAISE EXCEPTION 'TEST FAILED: 27C admin created a product at a foreign branch';
-  EXCEPTION WHEN insufficient_privilege THEN
-    RAISE NOTICE 'PASS 27C.5: admin cannot create a product at another branch';
-  END;
+  -- Business oversight allows writes anywhere inside the business (spec 5).
+  INSERT INTO public.products (business_id, branch_id, name, unit)
+  VALUES ('aaaaaaaa-0000-4000-8000-000000000001', 'aaaaaaaa-0000-4000-8000-000000000022', 'AZ Oversight Product A2', 'pcs');
+  RAISE NOTICE 'PASS 27C.5: admin can create a product at any branch of the own business';
 
   BEGIN
     INSERT INTO public.products (business_id, branch_id, name, unit)
@@ -240,12 +245,14 @@ BEGIN
     RAISE NOTICE 'PASS 27C.8: product branch is immutable';
   END;
 
-  -- balances + transactions
+  -- balances + transactions (oversight: both business-A balances, no B1)
   SELECT count(*) INTO v_count FROM public.inventory_balances;
-  IF v_count <> 1 OR NOT EXISTS (SELECT 1 FROM public.inventory_balances WHERE id = 'aaaaaaaa-0000-4000-8000-000000000051') THEN
-    RAISE EXCEPTION 'TEST FAILED: 27C admin sees % balances (expected only own branch)', v_count;
+  IF v_count <> 2
+     OR NOT EXISTS (SELECT 1 FROM public.inventory_balances WHERE id = 'aaaaaaaa-0000-4000-8000-000000000051')
+     OR NOT EXISTS (SELECT 1 FROM public.inventory_balances WHERE id = 'aaaaaaaa-0000-4000-8000-000000000052') THEN
+    RAISE EXCEPTION 'TEST FAILED: 27C admin sees % balances (expected both business-A balances)', v_count;
   END IF;
-  RAISE NOTICE 'PASS 27C.9: admin sees exactly own-branch balances';
+  RAISE NOTICE 'PASS 27C.9: admin sees the balances of every business-A branch';
 
   BEGIN
     INSERT INTO public.inventory_balances (product_id, branch_id, current_stock)
@@ -255,10 +262,10 @@ BEGIN
     RAISE NOTICE 'PASS 27C.10: balances require the product to live at the same branch';
   END;
 
-  IF EXISTS (SELECT 1 FROM public.inventory_transactions WHERE branch_id <> 'aaaaaaaa-0000-4000-8000-000000000021') THEN
-    RAISE EXCEPTION 'TEST FAILED: 27C admin can see foreign-branch inventory transactions';
+  IF EXISTS (SELECT 1 FROM public.inventory_transactions WHERE branch_id = 'aaaaaaaa-0000-4000-8000-000000000023') THEN
+    RAISE EXCEPTION 'TEST FAILED: 27C admin can see Business B inventory transactions';
   END IF;
-  RAISE NOTICE 'PASS 27C.11: admin sees exactly own-branch inventory transactions';
+  RAISE NOTICE 'PASS 27C.11: admin never sees foreign-business inventory transactions';
 
   PERFORM set_config('request.jwt.claims', '', true);
 EXCEPTION WHEN OTHERS THEN
@@ -372,17 +379,12 @@ BEGIN
     RAISE NOTICE 'PASS 27D.4: moving an admin onto an occupied branch rejected';
   END;
 
-  -- Assignment rows obey the same rule (spec section 12).
-  BEGIN
-    INSERT INTO public.user_branch_assignments (user_id, branch_id)
-    VALUES ('aaaaaaaa-0000-4000-8000-000000000032', 'aaaaaaaa-0000-4000-8000-000000000021');
-    RAISE EXCEPTION 'TEST FAILED: 27D branch assignment created a second admin at A1';
-  EXCEPTION WHEN unique_violation THEN
-    IF SQLERRM NOT LIKE '%already has an Admin%' THEN
-      RAISE EXCEPTION 'TEST FAILED: 27D wrong error for assignment conflict: %', SQLERRM;
-    END IF;
-    RAISE NOTICE 'PASS 27D.5: branch assignment cannot create a second admin';
-  END;
+  -- Oversight assignments are UNLIMITED (spec sections 8-9): being assigned
+  -- a branch never makes you "the Admin" of it — only a PRIMARY branch
+  -- (user_profiles.branch_id) consumes the one-admin slot.
+  INSERT INTO public.user_branch_assignments (user_id, branch_id)
+  VALUES ('aaaaaaaa-0000-4000-8000-000000000032', 'aaaaaaaa-0000-4000-8000-000000000021');
+  RAISE NOTICE 'PASS 27D.5: oversight assignment to an occupied branch is allowed (assigned vs oversight)';
 
   -- Positive control: assigning the admin to their own branch is fine.
   INSERT INTO public.user_branch_assignments (user_id, branch_id)
@@ -402,17 +404,23 @@ DECLARE
 BEGIN
   PERFORM set_config('request.jwt.claims', '{"sub":"aaaaaaaa-0000-4000-8000-000000000031","role":"authenticated"}', true);
 
-  -- Cannot even SEE a foreign-branch user (spec section 10).
-  IF EXISTS (SELECT 1 FROM public.user_profiles WHERE id = 'aaaaaaaa-0000-4000-8000-000000000033') THEN
-    RAISE EXCEPTION 'TEST FAILED: 27E admin can see a user from another branch';
-  END IF;
-  IF EXISTS (SELECT 1 FROM public.user_profiles WHERE id = 'aaaaaaaa-0000-4000-8000-000000000032') THEN
-    RAISE EXCEPTION 'TEST FAILED: 27E admin can see an admin from another branch';
-  END IF;
+  -- Directory = own business only: own-branch staff and non-admin staff of
+  -- overseen branches are visible; Business B staff never are. A fellow Admin
+  -- whose BRANCH you oversee is visible (oversight includes the roster) but —
+  -- asserted below — never editable (spec sections 5, 7, 10).
   IF NOT EXISTS (SELECT 1 FROM public.user_profiles WHERE id = 'aaaaaaaa-0000-4000-8000-000000000035') THEN
     RAISE EXCEPTION 'TEST FAILED: 27E admin cannot see own-branch staff';
   END IF;
-  RAISE NOTICE 'PASS 27E.1: user directory is branch-scoped for admin';
+  IF EXISTS (SELECT 1 FROM public.user_profiles WHERE id = 'aaaaaaaa-0000-4000-8000-000000000033') THEN
+    RAISE EXCEPTION 'TEST FAILED: 27E admin can see a user from another business';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.user_profiles WHERE id = 'aaaaaaaa-0000-4000-8000-000000000038') THEN
+    RAISE EXCEPTION 'TEST FAILED: 27E admin can see a manager from another business';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.user_profiles WHERE id = 'aaaaaaaa-0000-4000-8000-000000000032') THEN
+    RAISE EXCEPTION 'TEST FAILED: 27E admin cannot see the fellow admin whose branch they oversee';
+  END IF;
+  RAISE NOTICE 'PASS 27E.1: user directory is business-scoped (oversight) for admin';
 
   -- Blind write attempt (RLS quietly matches zero rows).
   UPDATE public.user_profiles SET full_name = 'HACKED'
@@ -422,6 +430,15 @@ BEGIN
     RAISE EXCEPTION 'TEST FAILED: 27E admin updated a foreign user (% rows)', v_rows;
   END IF;
   RAISE NOTICE 'PASS 27E.2: admin cannot modify a foreign user';
+
+  -- Admin-on-admin independence (spec section 7): visible, never editable.
+  UPDATE public.user_profiles SET full_name = 'HACKED'
+  WHERE id = 'aaaaaaaa-0000-4000-8000-000000000032';
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows <> 0 THEN
+    RAISE EXCEPTION 'TEST FAILED: 27E admin updated a fellow admin (% rows)', v_rows;
+  END IF;
+  RAISE NOTICE 'PASS 27E.2b: a fellow admin in scope cannot be edited';
 
   BEGIN
     INSERT INTO public.roles (name, display_name) VALUES ('az_rogue_role', 'AZ Rogue Role');
@@ -782,6 +799,155 @@ BEGIN
     RAISE EXCEPTION 'TEST FAILED: 27F admin can see Business B sales';
   END IF;
   RAISE NOTICE 'PASS 27F.11: cross-tenant sales invisible to Business A';
+
+  PERFORM set_config('request.jwt.claims', '', true);
+EXCEPTION WHEN OTHERS THEN
+  PERFORM set_config('request.jwt.claims', '', true);
+  RAISE;
+END $$;
+
+-- =====================================================================
+-- Section 27G: LOCATION OVERSIGHT + PRODUCT SOFT-DELETE TOMBSTONES
+-- =====================================================================
+
+-- G1 setup: grant the salesperson oversight of Location B (superuser write;
+-- RLS keeps user_location_assignments read-only for members).
+RESET ROLE;
+DO $$
+BEGIN
+  PERFORM set_config('request.jwt.claims', '', true);
+  INSERT INTO public.user_location_assignments (user_id, location_id)
+  VALUES ('aaaaaaaa-0000-4000-8000-000000000035', 'aaaaaaaa-0000-4000-8000-000000000012');
+END $$;
+
+-- G2: the grant widens branch/product visibility to Location B's branch (B1).
+SET ROLE authenticated;
+DO $$
+DECLARE
+  v_count int;
+BEGIN
+  PERFORM set_config('request.jwt.claims', '{"sub":"aaaaaaaa-0000-4000-8000-000000000035","role":"authenticated"}', true);
+
+  SELECT count(*) INTO v_count FROM public.branches;
+  IF v_count <> 2
+     OR NOT EXISTS (SELECT 1 FROM public.branches WHERE id = 'aaaaaaaa-0000-4000-8000-000000000021')
+     OR NOT EXISTS (SELECT 1 FROM public.branches WHERE id = 'aaaaaaaa-0000-4000-8000-000000000023') THEN
+    RAISE EXCEPTION 'TEST FAILED: 27G location grant did not expose both branches (got %)', v_count;
+  END IF;
+
+  -- Products: own-branch products (fixture + the one created in 27C.7) plus
+  -- B1 via the location grant; the A2 product stays out (no A2 grant).
+  SELECT count(*) INTO v_count FROM public.products;
+  IF v_count <> 3
+     OR NOT EXISTS (SELECT 1 FROM public.products WHERE id = 'aaaaaaaa-0000-4000-8000-000000000041')
+     OR NOT EXISTS (SELECT 1 FROM public.products WHERE id = 'aaaaaaaa-0000-4000-8000-000000000043')
+     OR EXISTS (SELECT 1 FROM public.products WHERE id = 'aaaaaaaa-0000-4000-8000-000000000042') THEN
+    RAISE EXCEPTION 'TEST FAILED: 27G location grant exposed the wrong product set (got %)', v_count;
+  END IF;
+  RAISE NOTICE 'PASS 27G.1: location oversight grant widens branch and product visibility';
+
+  PERFORM set_config('request.jwt.claims', '', true);
+EXCEPTION WHEN OTHERS THEN
+  PERFORM set_config('request.jwt.claims', '', true);
+  RAISE;
+END $$;
+
+-- G3: revoke the grant — visibility collapses back to the primary branch.
+RESET ROLE;
+DO $$
+BEGIN
+  PERFORM set_config('request.jwt.claims', '', true);
+  DELETE FROM public.user_location_assignments
+  WHERE user_id = 'aaaaaaaa-0000-4000-8000-000000000035'
+    AND location_id = 'aaaaaaaa-0000-4000-8000-000000000012';
+END $$;
+
+SET ROLE authenticated;
+DO $$
+DECLARE
+  v_count int;
+BEGIN
+  PERFORM set_config('request.jwt.claims', '{"sub":"aaaaaaaa-0000-4000-8000-000000000035","role":"authenticated"}', true);
+  SELECT count(*) INTO v_count FROM public.branches;
+  IF v_count <> 1 THEN
+    RAISE EXCEPTION 'TEST FAILED: 27G revoking the location grant left % branches visible', v_count;
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.products WHERE id = 'aaaaaaaa-0000-4000-8000-000000000043') THEN
+    RAISE EXCEPTION 'TEST FAILED: 27G revoking the location grant left a foreign product visible';
+  END IF;
+  RAISE NOTICE 'PASS 27G.2: revoking the location grant restores strict visibility';
+  PERFORM set_config('request.jwt.claims', '', true);
+EXCEPTION WHEN OTHERS THEN
+  PERFORM set_config('request.jwt.claims', '', true);
+  RAISE;
+END $$;
+
+-- G4: soft delete — the row stays as a frozen tombstone; hard delete is
+-- unreachable through RLS; only Admins/Super can still see the tombstone
+-- (spec section 12).
+DO $$
+DECLARE
+  v_rows int;
+BEGIN
+  PERFORM set_config('request.jwt.claims', '{"sub":"aaaaaaaa-0000-4000-8000-000000000031","role":"authenticated"}', true);
+
+  DELETE FROM public.products WHERE id = 'aaaaaaaa-0000-4000-8000-000000000041';
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows <> 0 THEN
+    RAISE EXCEPTION 'TEST FAILED: 27G authenticated hard delete removed % product rows', v_rows;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.products WHERE id = 'aaaaaaaa-0000-4000-8000-000000000041') THEN
+    RAISE EXCEPTION 'TEST FAILED: 27G product row vanished after hard delete';
+  END IF;
+  RAISE NOTICE 'PASS 27G.3: products cannot be hard-deleted through RLS';
+
+  UPDATE public.products
+  SET deleted_at = now(), deleted_by = 'aaaaaaaa-0000-4000-8000-000000000031', is_active = false
+  WHERE id = 'aaaaaaaa-0000-4000-8000-000000000041';
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows <> 1 THEN
+    RAISE EXCEPTION 'TEST FAILED: 27G soft delete updated % rows (expected 1)', v_rows;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.products WHERE id = 'aaaaaaaa-0000-4000-8000-000000000041'
+                 AND deleted_at IS NOT NULL AND deleted_by = 'aaaaaaaa-0000-4000-8000-000000000031') THEN
+    RAISE EXCEPTION 'TEST FAILED: 27G tombstone row/audit fields missing after soft delete';
+  END IF;
+  RAISE NOTICE 'PASS 27G.4: soft delete keeps a permanent tombstone row';
+
+  -- Tombstones are frozen: no further edits through RLS.
+  UPDATE public.products SET name = 'HACKED' WHERE id = 'aaaaaaaa-0000-4000-8000-000000000041';
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows <> 0 THEN
+    RAISE EXCEPTION 'TEST FAILED: 27G tombstone was edited (% rows)', v_rows;
+  END IF;
+  RAISE NOTICE 'PASS 27G.5: tombstones are frozen (no edits through RLS)';
+
+  -- Visibility: the deleting admin still sees their tombstone.
+  IF NOT EXISTS (SELECT 1 FROM public.products WHERE id = 'aaaaaaaa-0000-4000-8000-000000000041') THEN
+    RAISE EXCEPTION 'TEST FAILED: 27G admin cannot see own tombstone';
+  END IF;
+  RAISE NOTICE 'PASS 27G.6: admin still sees their own tombstone';
+
+  -- A fellow admin with oversight of the branch still sees it.
+  PERFORM set_config('request.jwt.claims', '{"sub":"aaaaaaaa-0000-4000-8000-000000000032","role":"authenticated"}', true);
+  IF NOT EXISTS (SELECT 1 FROM public.products WHERE id = 'aaaaaaaa-0000-4000-8000-000000000041') THEN
+    RAISE EXCEPTION 'TEST FAILED: 27G overseeing admin cannot see the tombstone';
+  END IF;
+  RAISE NOTICE 'PASS 27G.7: overseeing admin sees the tombstone';
+
+  -- Staff roles never see tombstones.
+  PERFORM set_config('request.jwt.claims', '{"sub":"aaaaaaaa-0000-4000-8000-000000000035","role":"authenticated"}', true);
+  IF EXISTS (SELECT 1 FROM public.products WHERE id = 'aaaaaaaa-0000-4000-8000-000000000041') THEN
+    RAISE EXCEPTION 'TEST FAILED: 27G salesperson can see a tombstone';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.products WHERE deleted_at IS NOT NULL) THEN
+    RAISE EXCEPTION 'TEST FAILED: 27G salesperson can see any tombstone';
+  END IF;
+  PERFORM set_config('request.jwt.claims', '{"sub":"aaaaaaaa-0000-4000-8000-000000000034","role":"authenticated"}', true);
+  IF EXISTS (SELECT 1 FROM public.products WHERE id = 'aaaaaaaa-0000-4000-8000-000000000041') THEN
+    RAISE EXCEPTION 'TEST FAILED: 27G manager can see a tombstone';
+  END IF;
+  RAISE NOTICE 'PASS 27G.8: staff and managers never see tombstones';
 
   PERFORM set_config('request.jwt.claims', '', true);
 EXCEPTION WHEN OTHERS THEN

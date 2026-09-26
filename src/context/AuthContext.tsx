@@ -30,7 +30,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // An Admin can be assigned to many businesses/branches, so the profile is
     // hydrated with the assignment rows the scope helpers (and the UI pickers)
     // rely on.
-    const [profileResult, businessAssignments, branchAssignments, managedBranches] = await Promise.all([
+    const [profileResult, businessAssignments, branchAssignments, managedBranches, accessibleResult] = await Promise.all([
       supabase
         .from('user_profiles')
         .select(
@@ -44,6 +44,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       supabase.from('user_business_assignments').select('business_id').eq('user_id', userId),
       supabase.from('user_branch_assignments').select('branch_id').eq('user_id', userId),
       supabase.from('branches').select('id').eq('manager_id', userId),
+      // Server-side scope (my_branch_ids()): business/location oversight for
+      // Admins lives ONLY in this function — client mirrors cannot see it.
+      supabase.rpc('my_branch_ids'),
     ]);
 
     if (profileResult.error) {
@@ -71,6 +74,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (profile.branch_id && !profile.branch_assignment_ids.includes(profile.branch_id)) {
       profile.branch_assignment_ids.unshift(profile.branch_id);
     }
+    profile.accessible_branch_ids = accessibleResult.data && !accessibleResult.error
+      ? (accessibleResult.data as string[])
+      : [...profile.branch_assignment_ids];
     return profile;
   }, []);
 

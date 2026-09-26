@@ -82,6 +82,13 @@ Deno.serve(async (request) => {
     (branchAssignments ?? []).forEach((row) => accessibleBranches.add(row.branch_id));
     (managedBranches ?? []).forEach((row) => { accessibleBranches.add(row.id); accessibleBusinesses.add(row.business_id); });
     (businessAssignments ?? []).forEach((row) => accessibleBusinesses.add(row.business_id));
+    // Business-level oversight (spec section 5): an Admin of a business may
+    // act on every branch of that business. Managers stay branch-scoped.
+    if (actorRole === 'admin' && accessibleBusinesses.size > 0) {
+      const { data: businessBranches } = await admin.from('branches')
+        .select('id, business_id').in('business_id', [...accessibleBusinesses]);
+      (businessBranches ?? []).forEach((row) => { accessibleBranches.add(row.id); accessibleBusinesses.add(row.business_id); });
+    }
     if (accessibleBranches.size) {
       const { data: branchRows } = await admin.from('branches').select('id, business_id').in('id', [...accessibleBranches]);
       (branchRows ?? []).forEach((row) => accessibleBusinesses.add(row.business_id));

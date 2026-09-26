@@ -20,6 +20,7 @@ import {
   ShieldCheck,
   Mail,
   Building2 as BuildingIcon,
+  ArrowLeftRight,
 } from 'lucide-react';
 import { ChangePasswordModal } from '@/components/ChangePasswordModal';
 import { useAuth } from '@/context/AuthContext';
@@ -84,6 +85,7 @@ export function DashboardPage() {
   // my_branch_ids() in the database).
   const accessibleBranchIds = useMemo(() => {
     if (isSuperAdmin) return [] as string[];
+    if (user?.accessible_branch_ids) return user.accessible_branch_ids;
     const ids = new Set<string>();
     if (user?.branch_id) ids.add(user.branch_id);
     for (const id of user?.branch_assignment_ids ?? []) if (id) ids.add(id);
@@ -91,35 +93,53 @@ export function DashboardPage() {
   }, [isSuperAdmin, user]);
   const branchScoped = !isSuperAdmin && accessibleBranchIds.length > 0;
 
+  // My Records vs Overseen Records (spec sections 5-9): anyone whose scope
+  // reaches beyond their own branch can flip the dashboard between their
+  // primary branch, the branches they only oversee, and everything they may
+  // see. "Overseen" is exactly accessible − primary.
+  const [scopeMode, setScopeMode] = useState<'all' | 'mine' | 'overseen'>('all');
+  const primaryBranchId = user?.branch_id ?? null;
+  const overseenBranchIds = useMemo(
+    () => accessibleBranchIds.filter((id) => id !== primaryBranchId),
+    [accessibleBranchIds, primaryBranchId],
+  );
+  const canSplitScope = !isSuperAdmin && isAtLeast(user, 'manager') && !!primaryBranchId && overseenBranchIds.length > 0;
+  const scopedBranchIds = useMemo(() => {
+    if (scopeMode === 'mine' && primaryBranchId) return [primaryBranchId];
+    if (scopeMode === 'overseen') return overseenBranchIds;
+    return accessibleBranchIds;
+  }, [scopeMode, primaryBranchId, overseenBranchIds, accessibleBranchIds]);
+  const scopeKey = scopedBranchIds.join(',');
+
   const branchesQuery = useMemo(() => {
     if (isSuperAdmin) return supabase.from('branches').select('*').eq('is_active', true).order('name');
-    if (accessibleBranchIds.length > 0) {
-      return supabase.from('branches').select('*').eq('is_active', true).in('id', accessibleBranchIds).order('name');
+    if (scopedBranchIds.length > 0) {
+      return supabase.from('branches').select('*').eq('is_active', true).in('id', scopedBranchIds).order('name');
     }
     if (user?.branch_id) return supabase.from('branches').select('*').eq('is_active', true).eq('id', user.branch_id);
     return supabase.from('branches').select('*').eq('is_active', true).order('name');
-  }, [isSuperAdmin, accessibleBranchIds, user?.branch_id]);
-  const { data: branches } = useSupabaseQuery<Branch[]>(() => branchesQuery, [], {
-    cacheKey: `dash:branches:${roleName}:${accessibleBranchIds.join(',')}:${user?.branch_id ?? '-'}`,
+  }, [isSuperAdmin, scopedBranchIds, user?.branch_id]);
+  const { data: branches } = useSupabaseQuery<Branch[]>(() => branchesQuery, [branchesQuery], {
+    cacheKey: `dash:branches:${roleName}:${scopeKey}:${user?.branch_id ?? '-'}`,
     ttlMs: 60_000,
   });
 
   const reportsQuery = useMemo(() => {
     let q = supabase.from('weekly_reports').select(`*, business:businesses(id,name), branch:branches(id,name)`).order('created_at', { ascending: false });
-    if (branchScoped) q = q.in('branch_id', accessibleBranchIds);
+    if (branchScoped) q = q.in('branch_id', scopedBranchIds);
     return q.limit(20);
-  }, [branchScoped, accessibleBranchIds]);
+  }, [branchScoped, scopedBranchIds]);
   const { data: weeklyReports } = useSupabaseQuery<WeeklyReport[]>(() => reportsQuery, [reportsQuery], {
-    cacheKey: `dash:reports:${roleName}:${accessibleBranchIds.join(',')}:${user?.branch_id ?? '-'}:${user?.id ?? '-'}`,
+    cacheKey: `dash:reports:${roleName}:${scopeKey}:${user?.branch_id ?? '-'}:${user?.id ?? '-'}`,
   });
 
   const issuesQuery = useMemo(() => {
     let q = supabase.from('issues').select(`*, branch:branches(id,name), business:businesses(id,name)`).neq('status', 'closed').order('created_at', { ascending: false }).limit(10);
-    if (branchScoped) q = q.in('branch_id', accessibleBranchIds);
+    if (branchScoped) q = q.in('branch_id', scopedBranchIds);
     return q;
-  }, [branchScoped, accessibleBranchIds]);
+  }, [branchScoped, scopedBranchIds]);
   const { data: issues } = useSupabaseQuery<Issue[]>(() => issuesQuery, [issuesQuery], {
-    cacheKey: `dash:issues:${roleName}:${accessibleBranchIds.join(',')}:${user?.branch_id ?? '-'}`,
+    cacheKey: `dash:issues:${roleName}:${scopeKey}:${user?.branch_id ?? '-'}`,
   });
 
   const salesActive = isSalesPerson && !!user?.branch_id;
@@ -151,8 +171,9 @@ export function DashboardPage() {
 
   // Command-center aggregates: catalog size, empty shelves and the approval
   // queue. RLS scopes products/balances/profiles for Admins, so this is safe.
+  // Tombstones never count toward catalog KPIs.
   const { data: allProducts } = useSupabaseQuery<Product[]>(
-    isAdmin ? () => supabase.from('products').select('id,name,unit,is_active,business_id').order('name').limit(1000) : null,
+    isAdmin ? () => supabase.from('products').select('id,name,unit,is_active,business_id,branch_id').is('deleted_at', null).order('name').limit(1000) : null,
     [isAdmin],
     { cacheKey: isAdmin ? `dash:admin:products:${user?.id ?? '-'}` : undefined, ttlMs: 60_000 },
   );
@@ -162,17 +183,45 @@ export function DashboardPage() {
     { cacheKey: isAdmin ? `dash:admin:pending:${user?.id ?? '-'}` : undefined, ttlMs: 60_000 },
   );
 
+  // Super Admin command centre: organisation-wide pipeline + activity trail.
+  const { data: openTransfers } = useSupabaseQuery<Array<{ id: string; status: string }>>(
+    isSuperAdmin
+      ? () => supabase.from('stock_transfers').select('id,status')
+          .in('status', ['requested', 'reviewed', 'approved', 'dispatched', 'in_transit']).limit(500)
+      : null,
+    [isSuperAdmin],
+    { cacheKey: isSuperAdmin ? `dash:xfer:${user?.id ?? '-'}` : undefined, ttlMs: 60_000 },
+  );
+  const { data: recentActivity } = useSupabaseQuery<Array<{
+    id: string;
+    action: string;
+    target_table: string | null;
+    created_at: string;
+    actor_id: string | null;
+  }>>(
+    isSuperAdmin
+      ? () => supabase.from('audit_log').select('id,action,target_table,created_at,actor_id')
+          .order('created_at', { ascending: false }).limit(8)
+      : null,
+    [isSuperAdmin],
+    { cacheKey: isSuperAdmin ? `dash:xlog:${user?.id ?? '-'}` : undefined, ttlMs: 30_000 },
+  );
+
   const { data: stockBalances } = useSupabaseQuery<Array<{
     current_stock: number | string;
     min_stock_level: number | string;
     product: { id: string; name: string; unit: string | null; cost_price: number | string } | null;
     branch: { id: string; name: string } | null;
   }>>(
-    () => supabase.from('inventory_balances')
-      .select('current_stock,min_stock_level, product:products(id,name,unit,cost_price), branch:branches(id,name)')
-      .limit(1000),
-    [],
-    { cacheKey: `dash:stock:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
+    () => {
+      let q = supabase.from('inventory_balances')
+        .select('current_stock,min_stock_level, product:products(id,name,unit,cost_price), branch:branches(id,name)')
+        .limit(1000);
+      if (branchScoped) q = q.in('branch_id', scopedBranchIds);
+      return q;
+    },
+    [branchScoped, scopeKey],
+    { cacheKey: `dash:stock:${user?.id ?? 'anon'}:${scopeKey}`, ttlMs: 60_000 },
   );
   const lowStockCount = (stockBalances ?? []).filter(
     (b) => Number(b.min_stock_level) > 0 && Number(b.current_stock) <= Number(b.min_stock_level),
@@ -210,14 +259,28 @@ export function DashboardPage() {
     [stockBalances],
   );
 
+  // Super Admin command centre: one row per business across the organisation.
+  const businessBreakdown = useMemo(() => {
+    if (!isSuperAdmin) return [] as Array<{ id: string; name: string; branches: number; staff: number; units: number; value: number; low: number }>;
+    return (businesses ?? []).map((b) => {
+      const bBranchIds = new Set((branches ?? []).filter((x) => x.business_id === b.id).map((x) => x.id));
+      const bBalances = (stockBalances ?? []).filter((x) => x.branch != null && bBranchIds.has(x.branch.id));
+      const bUnits = bBalances.reduce((s, x) => s + (Number(x.current_stock) || 0), 0);
+      const bValue = bBalances.reduce((s, x) => s + (Number(x.current_stock) || 0) * (Number(x.product?.cost_price ?? 0) || 0), 0);
+      const bLow = bBalances.filter((x) => Number(x.min_stock_level) > 0 && Number(x.current_stock) <= Number(x.min_stock_level)).length;
+      const bStaff = (users ?? []).filter((u) => u.business_id === b.id || (u.branch_id != null && bBranchIds.has(u.branch_id))).length;
+      return { id: b.id, name: b.name, branches: bBranchIds.size, staff: bStaff, units: bUnits, value: bValue, low: bLow };
+    }).sort((a, z) => z.value - a.value);
+  }, [isSuperAdmin, businesses, branches, users, stockBalances]);
+
   const revenue30Query = useMemo(() => {
     if (!isAdmin) return null;
     const d0 = new Date(Date.now() - 29 * 86400000);
     const since = `${d0.getFullYear()}-${String(d0.getMonth() + 1).padStart(2, '0')}-${String(d0.getDate()).padStart(2, '0')}`;
     let q = supabase.from('daily_sales').select('sale_date,unit_price,quantity,discount_value,status').gte('sale_date', since).limit(1000);
-    if (branchScoped) q = q.in('branch_id', accessibleBranchIds);
+    if (branchScoped) q = q.in('branch_id', scopedBranchIds);
     return q;
-  }, [isAdmin, branchScoped, accessibleBranchIds]);
+  }, [isAdmin, branchScoped, scopedBranchIds]);
   const { data: recentSales } = useSupabaseQuery<Array<{
     sale_date: string;
     unit_price: number | string;
@@ -225,7 +288,7 @@ export function DashboardPage() {
     discount_value: number | string;
     status: string;
   }>>(revenue30Query ? () => revenue30Query : null, [revenue30Query], {
-    cacheKey: isAdmin ? `dash:rev30:${roleName}:${accessibleBranchIds.join(',')}:${user?.id ?? '-'}` : undefined,
+    cacheKey: isAdmin ? `dash:rev30:${roleName}:${scopeKey}:${user?.id ?? '-'}` : undefined,
     ttlMs: 60_000,
   });
   const revenue30 = useMemo(() => {
@@ -342,6 +405,20 @@ export function DashboardPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {canSplitScope && (
+            <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 text-xs font-medium" role="group" aria-label="Records scope">
+              {([['mine', 'My Records'], ['overseen', `Overseen (${overseenBranchIds.length})`], ['all', 'All']] as const).map(([mode, label]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setScopeMode(mode)}
+                  className={`px-3 py-1.5 rounded-md transition-colors ${scopeMode === mode ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
           <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 capitalize">{user?.role?.display_name}</Badge>
           <span className="text-xs text-slate-400">{formatDate(new Date().toISOString())}</span>
         </div>
@@ -423,6 +500,80 @@ export function DashboardPage() {
           </>
         )}
       </div>
+
+      {isSuperAdmin && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
+            <MetricCard icon={<ArrowLeftRight size={20} />} label="Open Transfers" value={String(openTransfers?.length ?? 0)} subtitle="Requested → in transit" color="blue" />
+            <MetricCard icon={<AlertTriangle size={20} />} label="Low Stock Lines" value={String(lowStockCount)} subtitle="Across the organisation" color="amber" />
+            <MetricCard icon={<DollarSign size={20} />} label="Stock Value" value={formatCurrency(stockValue)} subtitle="At unit cost, all branches" color="emerald" />
+            <MetricCard icon={<Package size={20} />} label="Active Products" value={String(allProducts?.filter((p) => p.is_active).length ?? 0)} subtitle={`${allProducts?.length ?? 0} in catalog`} color="slate" />
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 lg:col-span-2 overflow-x-auto">
+              <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2 mb-4">
+                <Building2 size={18} /> Business Breakdown
+              </h3>
+              {businessBreakdown.length > 0 ? (
+                <table className="w-full text-sm min-w-[560px]">
+                  <thead>
+                    <tr className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-100">
+                      <th className="py-2 pr-4">Business</th>
+                      <th className="py-2 pr-4 text-right">Branches</th>
+                      <th className="py-2 pr-4 text-right">Staff</th>
+                      <th className="py-2 pr-4 text-right">Units</th>
+                      <th className="py-2 pr-4 text-right">Stock Value</th>
+                      <th className="py-2 text-right">Low Stock</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {businessBreakdown.map((b) => (
+                      <tr key={b.id}>
+                        <td className="py-2.5 pr-4 font-medium text-slate-900">{b.name}</td>
+                        <td className="py-2.5 pr-4 text-right text-slate-600">{b.branches}</td>
+                        <td className="py-2.5 pr-4 text-right text-slate-600">{b.staff}</td>
+                        <td className="py-2.5 pr-4 text-right text-slate-600">{formatNumber(b.units)}</td>
+                        <td className="py-2.5 pr-4 text-right font-medium text-slate-900">{formatCurrency(b.value)}</td>
+                        <td className="py-2.5 text-right">
+                          {b.low > 0 ? <Badge className="bg-amber-100 text-amber-700 border-amber-200">{b.low}</Badge> : <span className="text-slate-400">—</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <p className="text-sm text-slate-400 text-center py-6">No businesses yet</p>
+              )}
+            </div>
+            <div className="bg-white rounded-2xl border border-slate-200 p-5">
+              <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2 mb-4">
+                <Activity size={18} /> Recent Activity
+              </h3>
+              {(recentActivity ?? []).length > 0 ? (
+                <ul className="space-y-3">
+                  {recentActivity?.map((a) => {
+                    const actor = users?.find((u) => u.id === a.actor_id);
+                    return (
+                      <li key={a.id} className="flex items-start gap-2.5">
+                        <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-xs text-slate-800">
+                            <span className="font-semibold">{actor?.full_name ?? 'System'}</span>{' '}
+                            {a.action.replace(/[._]/g, ' ')}
+                          </p>
+                          <p className="text-[11px] text-slate-400">{a.target_table ?? 'record'} · {formatDate(a.created_at)}</p>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <p className="text-sm text-slate-400 text-center py-6">No activity yet</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {isAdmin && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">

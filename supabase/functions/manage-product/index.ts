@@ -97,6 +97,13 @@ Deno.serve(async (request) => {
         : Promise.resolve({ data: [] as Array<{ id: string; business_id: string }> }),
     ]);
     (branchBusinesses ?? []).forEach((row) => accessibleBusinesses.add(row.business_id));
+    // Business-level oversight (spec section 5): an Admin of a business may act
+    // on every branch of that business. Managers stay branch-scoped.
+    if (actorRole === 'admin' && accessibleBusinesses.size > 0) {
+      const { data: businessBranches } = await admin.from('branches')
+        .select('id, business_id').in('business_id', [...accessibleBusinesses]);
+      (businessBranches ?? []).forEach((row) => { accessibleBranches.add(row.id); accessibleBusinesses.add(row.business_id); });
+    }
   }
 
   const assertBranchInScope = async (branchId: string | null | undefined): Promise<{ id: string; business_id: string } | null> => {
@@ -109,22 +116,32 @@ Deno.serve(async (request) => {
   if (p_action === 'delete') {
     if (!p_product_id) return reply({ error: 'Product ID is required to delete' }, 400);
     if (actorRole === 'manager') return reply({ error: 'Managers can deactivate products but cannot delete them' }, 403);
-    const { data: target, error: targetError } = await admin.from('products').select('id,business_id,branch_id,name').eq('id', p_product_id).maybeSingle();
+    const { data: target, error: targetError } = await admin.from('products')
+      .select('id,business_id,branch_id,name,deleted_at').eq('id', p_product_id).maybeSingle();
     if (targetError) return reply({ error: targetError.message }, 500);
     if (!target) return reply({ error: 'Product not found' }, 404);
+    if (target.deleted_at) return reply({ error: 'Product has already been deleted' }, 409);
     if (actorRole !== 'super_admin' && !(await assertBranchInScope(target.branch_id))) {
       return reply({ error: 'Products are branch-scoped; this product is outside your branch scope' }, 403);
     }
     const { data: inUse } = await admin.from('sale_items').select('id').eq('product_id', p_product_id).limit(1);
     if (inUse && inUse.length > 0) {
-      const { error: deactivateError } = await admin.from('products').update({ is_active: false }).eq('id', p_product_id);
+      const { error: deactivateError } = await admin.from('products').update({ is_active: false, updated_by: caller.id }).eq('id', p_product_id);
       if (deactivateError) return reply({ error: deactivateError.message }, 400);
       await admin.from('audit_log').insert({ actor_id: caller.id, action: 'product.deactivated_on_delete', target_table: 'products', target_id: p_product_id, metadata: { name: target.name }, branch_id: target.branch_id });
       return reply({ success: true, deactivated: true });
     }
-    const { error: deleteError } = await admin.from('products').delete().eq('id', p_product_id);
+    // Soft delete: the row stays as a tombstone (deleted_at/deleted_by) so the
+    // platform keeps a permanent record that the product existed; audit_log
+    // carries the same fact for the activity trail (spec section 12).
+    const { error: deleteError } = await admin.from('products').update({
+      deleted_at: new Date().toISOString(),
+      deleted_by: caller.id,
+      is_active: false,
+      updated_by: caller.id,
+    }).eq('id', p_product_id).is('deleted_at', null);
     if (deleteError) return reply({ error: deleteError.message }, 400);
-    await admin.from('audit_log').insert({ actor_id: caller.id, action: 'product.deleted', target_table: 'products', target_id: p_product_id, metadata: { name: target.name }, branch_id: target.branch_id });
+    await admin.from('audit_log').insert({ actor_id: caller.id, action: 'product.deleted', target_table: 'products', target_id: p_product_id, metadata: { name: target.name, soft: true }, branch_id: target.branch_id });
     return reply({ success: true });
   }
 
@@ -180,9 +197,10 @@ Deno.serve(async (request) => {
 
   // update
   if (!p_product_id) return reply({ error: 'Product ID is required to update' }, 400);
-  const { data: target, error: targetError } = await admin.from('products').select('id,business_id,branch_id').eq('id', p_product_id).maybeSingle();
+  const { data: target, error: targetError } = await admin.from('products').select('id,business_id,branch_id,deleted_at').eq('id', p_product_id).maybeSingle();
   if (targetError) return reply({ error: targetError.message }, 500);
   if (!target) return reply({ error: 'Product not found' }, 404);
+  if (target.deleted_at) return reply({ error: 'Deleted products cannot be edited' }, 409);
   if (fields.branch_id && fields.branch_id !== target.branch_id) {
     return reply({ error: 'A product cannot be moved between branches' }, 400);
   }

@@ -52,6 +52,13 @@ Deno.serve(async (request) => {
     if (actorBusiness) managedBusinesses.add(actorBusiness);
     (businessAssignments ?? []).forEach((row) => managedBusinesses.add(row.business_id));
     (managedBranches ?? []).forEach((row) => managedBusinesses.add(row.business_id));
+    // Business-level oversight (spec section 5): every branch of the Admin's
+    // businesses counts as in-scope.
+    if (managedBusinesses.size > 0) {
+      const { data: businessBranches } = await admin.from('branches')
+        .select('id').in('business_id', [...managedBusinesses]);
+      (businessBranches ?? []).forEach((row) => accessible.add(row.id));
+    }
     const targetBranch = (target as { branch_id?: string | null }).branch_id ?? null;
     const targetBusiness = (target as { business_id?: string | null }).business_id ?? null;
     const inScope = targetBranch
