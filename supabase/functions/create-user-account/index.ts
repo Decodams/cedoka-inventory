@@ -51,27 +51,82 @@ Deno.serve(async (request) => {
   }
   const businessIds = [...new Set((body.p_business_ids ?? (body.p_business_id ? [body.p_business_id] : [])).filter(Boolean))];
   const branchIds = [...new Set((body.p_branch_ids ?? (body.p_branch_id ? [body.p_branch_id] : [])).filter(Boolean))];
-  const businessId = actorRole === 'manager' ? actor.business_id : businessIds[0] ?? null;
-  const branchId = actorRole === 'manager' ? actor.branch_id : branchIds[0] ?? null;
-  if (actorRole === 'admin' && businessId !== actor.business_id) return reply({ error: 'Admins can only create users in their own business' }, 403);
-  if (actorRole === 'manager' && branchId !== actor.branch_id) return reply({ error: 'Managers can only create users in their own branch' }, 403);
+
+  // Service role bypasses RLS, so scope is validated here: the actor's
+  // accessible branches (primary + assignments + managed) and businesses
+  // (spec sections 6, 12, 20).
+  const actorBusinessId = (actor as { business_id?: string | null }).business_id ?? null;
+  const actorBranchId = (actor as { branch_id?: string | null }).branch_id ?? null;
+  const accessibleBranches = new Set<string>();
+  const accessibleBusinesses = new Set<string>();
+  const branchBusinessMap = new Map<string, string>();
+  if (actorBusinessId) accessibleBusinesses.add(actorBusinessId);
+  if (actorBranchId) accessibleBranches.add(actorBranchId);
+
+  const [{ data: branchAssignments }, { data: managedBranches }, { data: businessAssignments }] = await Promise.all([
+    admin.from('user_branch_assignments').select('branch_id').eq('user_id', caller.id),
+    admin.from('branches').select('id, business_id').eq('manager_id', caller.id),
+    admin.from('user_business_assignments').select('business_id').eq('user_id', caller.id),
+  ]);
+  (branchAssignments ?? []).forEach((row) => accessibleBranches.add(row.branch_id));
+  (managedBranches ?? []).forEach((row) => { accessibleBranches.add(row.id); accessibleBusinesses.add(row.business_id); });
+  (businessAssignments ?? []).forEach((row) => accessibleBusinesses.add(row.business_id));
+
+  if (branchIds.length) {
+    const { data: branchRows } = await admin.from('branches').select('id, business_id').in('id', branchIds);
+    (branchRows ?? []).forEach((row) => branchBusinessMap.set(row.id, row.business_id));
+    if (actorRole !== 'super_admin') {
+      if ((branchRows ?? []).length !== branchIds.length) {
+        return reply({ error: 'One or more selected branches do not exist' }, 400);
+      }
+      if (branchIds.some((branchId) => !accessibleBranches.has(branchId))) {
+        return reply({ error: 'One or more selected branches are outside your scope' }, 403);
+      }
+      (branchRows ?? []).forEach((row) => accessibleBusinesses.add(row.business_id));
+      if (businessIds.some((bizId) => !accessibleBusinesses.has(bizId))) {
+        return reply({ error: 'One or more selected businesses are outside your scope' }, 403);
+      }
+    }
+    if (businessIds.length && branchIds.some((branchId) => !businessIds.includes(branchBusinessMap.get(branchId) ?? ''))) {
+      return reply({ error: 'Selected branches must belong to selected businesses' }, 400);
+    }
+  } else if (actorRole !== 'super_admin' && businessIds.some((bizId) => !accessibleBusinesses.has(bizId))) {
+    return reply({ error: 'One or more selected businesses are outside your scope' }, 403);
+  }
+
+  const businessId = actorRole === 'manager'
+    ? (branchIds[0] ? branchBusinessMap.get(branchIds[0]) ?? actorBusinessId : actorBusinessId)
+    : businessIds[0] ?? (branchIds[0] ? branchBusinessMap.get(branchIds[0]) ?? null : null);
+  const branchId = branchIds[0] ?? (actorRole === 'manager' ? actorBranchId : null);
   const { data: role, error: roleError } = await admin.from('roles').select('id').eq('name', body.p_role_name).maybeSingle();
   if (roleError || !role) return reply({ error: 'Invalid role selected' }, 400);
   const { data: created, error: createError } = await admin.auth.admin.createUser({ email, password: body.p_password, email_confirm: true });
   if (createError || !created.user) return reply({ error: createError?.message ?? 'Could not create Auth user' }, 400);
   const { data: profile, error: profileError } = await admin.from('user_profiles').insert({ id: created.user.id, email, full_name: body.p_full_name.trim(), role_id: role.id, business_id: businessId, branch_id: branchId, is_active: true, created_by: caller.id }).select('*').single();
   if (profileError) { await admin.auth.admin.deleteUser(created.user.id); return reply({ error: profileError.message }, 400); }
-  if (body.p_role_name === 'admin') {
-    if (!businessIds.length) { await admin.auth.admin.deleteUser(created.user.id); return reply({ error: 'An Admin needs at least one business assignment' }, 400); }
-    const { data: selectedBranches } = branchIds.length ? await admin.from('branches').select('id,business_id').in('id', branchIds) : { data: [] as Array<{ id: string; business_id: string }> };
-    if ((selectedBranches?.length ?? 0) !== branchIds.length || selectedBranches?.some((branch) => !businessIds.includes(branch.business_id))) { await admin.auth.admin.deleteUser(created.user.id); return reply({ error: 'Selected branches must belong to selected businesses' }, 400); }
-    const { error: businessAssignmentError } = await admin.from('user_business_assignments').insert(businessIds.map((business_id) => ({ user_id: created.user.id, business_id })));
-    if (businessAssignmentError) return reply({ error: businessAssignmentError.message }, 500);
+  if (body.p_role_name === 'admin' || body.p_role_name === 'manager') {
+    if (body.p_role_name === 'admin' && !businessIds.length) {
+      await admin.auth.admin.deleteUser(created.user.id);
+      return reply({ error: 'An Admin needs at least one business assignment' }, 400);
+    }
+    if (businessIds.length) {
+      const { error: businessAssignmentError } = await admin.from('user_business_assignments').insert(businessIds.map((business_id) => ({ user_id: created.user.id, business_id })));
+      if (businessAssignmentError) {
+        await admin.auth.admin.deleteUser(created.user.id);
+        return reply({ error: businessAssignmentError.message }, 500);
+      }
+    }
     if (branchIds.length) {
+      // Branch assignments are how Admins and Managers gain multi-branch
+      // scope (spec section 12); conflicts (a second Admin on a branch) are
+      // rejected by the one-admin-per-branch trigger with 23505.
       const { error: branchAssignmentError } = await admin.from('user_branch_assignments').insert(branchIds.map((branch_id) => ({ user_id: created.user.id, branch_id })));
-      if (branchAssignmentError) return reply({ error: branchAssignmentError.message }, 500);
+      if (branchAssignmentError) {
+        await admin.auth.admin.deleteUser(created.user.id);
+        return reply({ error: branchAssignmentError.message }, 400);
+      }
     }
   }
-  await admin.from('audit_log').insert({ actor_id: caller.id, action: 'user.created', target_table: 'user_profiles', target_id: created.user.id, metadata: { email, role: body.p_role_name, created_by: actorRole } });
+  await admin.from('audit_log').insert({ actor_id: caller.id, action: 'user.created', target_table: 'user_profiles', target_id: created.user.id, metadata: { email, role: body.p_role_name, created_by: actorRole }, branch_id: branchId });
   return reply({ profile });
 });

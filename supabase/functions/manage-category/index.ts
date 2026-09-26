@@ -32,8 +32,18 @@ Deno.serve(async (request) => {
   if (!actor?.is_active || !['super_admin', 'admin', 'manager'].includes(actorRole ?? '')) return reply({ error: 'Not authorized' }, 403);
 
   if (actorRole === 'admin' || actorRole === 'manager') {
+    // Service role bypasses RLS, so scope is validated here: primary
+    // business + explicit assignments (spec section 6).
+    const accessible = new Set<string>();
     const actorBiz = (actor as { business_id?: string | null }).business_id ?? null;
-    if (p_business_id !== actorBiz) return reply({ error: 'You can only manage categories in your own business' }, 403);
+    if (actorBiz) accessible.add(actorBiz);
+    const [{ data: bizAssignments }, { data: managedBranches }] = await Promise.all([
+      admin.from('user_business_assignments').select('business_id').eq('user_id', caller.id),
+      admin.from('branches').select('business_id').eq('manager_id', caller.id),
+    ]);
+    (bizAssignments ?? []).forEach((row) => accessible.add(row.business_id));
+    (managedBranches ?? []).forEach((row) => accessible.add(row.business_id));
+    if (!accessible.has(p_business_id)) return reply({ error: 'You can only manage categories in your own business' }, 403);
   }
 
   if (p_action === 'create') {

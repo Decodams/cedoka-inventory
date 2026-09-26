@@ -16,8 +16,11 @@ type StaffWithRole = Pick<UserProfile, 'id' | 'full_name' | 'business_id' | 'bra
 
 export function BusinessBranchPage() {
   const { user } = useAuth();
-  const canManageBusinesses = hasRole(user, 'super_admin', 'admin');
-  const canManageBranches = hasRole(user, 'super_admin', 'admin');
+  // Spec sections 4/5: the business & branch registry is written by Super
+  // Admin only (businesses_write_super / branches_*_super policies). Admins
+  // keep read access to their own scope.
+  const canManageBusinesses = hasRole(user, 'super_admin');
+  const canManageBranches = hasRole(user, 'super_admin');
   const canManageCategories = hasRole(user, 'super_admin', 'admin') || isAtLeast(user, 'manager');
   const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
   const [showBizModal, setShowBizModal] = useState(false);

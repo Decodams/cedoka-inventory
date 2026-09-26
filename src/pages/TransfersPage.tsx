@@ -9,7 +9,7 @@ import { Input, Select, Textarea } from '@/components/ui/Form';
 import { Badge } from '@/components/ui/Badge';
 import { formatDate } from '@/lib/dateUtils';
 import { logAudit } from '@/lib/audit';
-import { isAtLeast } from '@/lib/rbac';
+import { isAtLeast, hasRole } from '@/lib/rbac';
 import { TRANSFER_STATUS_STYLES, TRANSFER_STATUS_LABELS } from '@/lib/statusStyles';
 import type { StockTransfer, Branch, Product, TransferStatus } from '@/types/database';
 
@@ -59,74 +59,41 @@ export function TransfersPage() {
     );
   }, [transfers, search]);
 
-  const advanceStatus = async (t: StockTransfer, next: TransferStatus, extra: Record<string, unknown> = {}) => {
-    // On dispatch: deduct from source branch; on receive: add to dest. Any RPC
-    // failure now aborts the status change and surfaces inline — no more silent
-    // desync. Already-moved items are skipped so retries never double-move stock.
+  // Branches this user can act for — mirrors my_branch_ids() server-side.
+  const myBranchIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (user?.branch_id) ids.add(user.branch_id);
+    for (const id of user?.branch_assignment_ids ?? []) if (id) ids.add(id);
+    return ids;
+  }, [user]);
+  const isSuperAdmin = hasRole(user, 'super_admin');
+
+  // Side-based visibility matching advance_stock_transfer(): dispatch is the
+  // source branch's action, receive/complete the destination's; review and
+  // approve may happen on either side. The RPC enforces this too — this only
+  // keeps buttons that would be denied off the screen.
+  const sideOk = (t: StockTransfer, next: TransferStatus): boolean => {
+    if (isSuperAdmin) return true;
+    if (next === 'dispatched' || next === 'in_transit') return myBranchIds.has(t.from_branch_id);
+    if (next === 'received' || next === 'completed') return myBranchIds.has(t.to_branch_id);
+    return myBranchIds.has(t.from_branch_id) || myBranchIds.has(t.to_branch_id);
+  };
+
+  const advanceStatus = async (t: StockTransfer, next: TransferStatus) => {
+    // Transitions, stock movements (transfer_out/in), reviewer/dispatcher
+    // stamps and the audit row all happen inside advance_stock_transfer() —
+    // a single SECURITY DEFINER RPC with side-based authorization.
     setSyncError(null);
     setBusyId(t.id);
     try {
-      const { data: items, error: itemsErr } = await supabase
-        .from('stock_transfer_items')
-        .select('*, product:products(name)')
-        .eq('transfer_id', t.id);
-      if (itemsErr) {
-        setSyncError(`Could not load transfer items: ${itemsErr.message}`);
-        return;
-      }
-      const failures: string[] = [];
-      if ((next === 'dispatched' || next === 'received') && items?.length) {
-        const movementType = next === 'dispatched' ? 'transfer_out' : 'transfer_in';
-        const branchId = next === 'dispatched' ? t.from_branch_id : t.to_branch_id;
-        const { data: existing, error: existingErr } = await supabase
-          .from('inventory_transactions')
-          .select('product_id')
-          .eq('reference_type', 'stock_transfer')
-          .eq('reference_id', t.id)
-          .eq('movement_type', movementType);
-        if (existingErr) {
-          setSyncError(`Could not verify previous stock movements: ${existingErr.message}`);
-          return;
-        }
-        const alreadyMoved = new Set((existing ?? []).map((r) => r.product_id));
-        const label = next === 'dispatched'
-          ? `Transfer ${t.transfer_number ?? t.id.slice(0, 8)} dispatched to ${(t.to_branch as unknown as Branch)?.name ?? ''}`
-          : `Transfer ${t.transfer_number ?? t.id.slice(0, 8)} received from ${(t.from_branch as unknown as Branch)?.name ?? ''}`;
-        for (const it of items as Array<{ product_id: string; quantity: number; product?: { name: string } | null }>) {
-          if (alreadyMoved.has(it.product_id)) continue;
-          const { error } = await supabase.rpc('record_inventory_movement', {
-            p_product_id: it.product_id,
-            p_branch_id: branchId,
-            p_movement_type: movementType,
-            p_quantity: it.quantity,
-            p_reason: label,
-            p_reference_type: 'stock_transfer',
-            p_reference_id: t.id,
-          });
-          if (error) failures.push(`${it.product?.name ?? it.product_id}: ${error.message}`);
-        }
-        if (next === 'received' && failures.length === 0) {
-          for (const it of items as Array<{ id: string; quantity: number; received_quantity: number | null }>) {
-            if (it.received_quantity !== it.quantity) {
-              await supabase.from('stock_transfer_items').update({ received_quantity: it.quantity }).eq('id', it.id);
-            }
-          }
-        }
-      }
-      if (failures.length > 0) {
-        setSyncError(`Stock sync failed — status was NOT advanced. ${failures.join(' | ')}. Fix the cause and retry; items already moved are skipped.`);
-        return;
-      }
-      const { error: updErr } = await supabase.from('stock_transfers').update({ status: next, ...extra }).eq('id', t.id);
-      if (updErr) {
-        setSyncError(`Stock synced, but the status could not be updated: ${updErr.message}`);
-        return;
-      }
-      await logAudit(`transfer.${next}`, 'stock_transfers', t.id, {
-        from_branch_id: t.from_branch_id,
-        to_branch_id: t.to_branch_id,
-        transfer_number: t.transfer_number ?? null,
+      const { error: rpcErr } = await supabase.rpc('advance_stock_transfer', {
+        p_transfer_id: t.id,
+        p_next_status: next,
       });
+      if (rpcErr) {
+        setSyncError(`Could not advance transfer: ${rpcErr.message}`);
+        return;
+      }
       refetch();
     } finally {
       setBusyId(null);
@@ -191,20 +158,20 @@ export function TransfersPage() {
                 </div>
                 <div className="flex items-center gap-1 shrink-0 flex-wrap">
                   <Button variant="ghost" size="sm" onClick={() => setViewTransfer(t)}><Eye size={14}/>View</Button>
-                  {canManage && t.status === 'requested' && (
+                  {canManage && t.status === 'requested' && sideOk(t, 'reviewed') && (
                     <Button variant="ghost" size="sm" disabled={busyId === t.id} onClick={() => advanceStatus(t, 'reviewed')}>Review</Button>
                   )}
-                  {canManage && t.status === 'reviewed' && (
-                    <Button variant="ghost" size="sm" disabled={busyId === t.id} onClick={() => advanceStatus(t, 'approved', { approved_by: user?.id })}>Approve</Button>
+                  {canManage && t.status === 'reviewed' && sideOk(t, 'approved') && (
+                    <Button variant="ghost" size="sm" disabled={busyId === t.id} onClick={() => advanceStatus(t, 'approved')}>Approve</Button>
                   )}
-                  {canManage && t.status === 'approved' && (
-                    <Button variant="ghost" size="sm" disabled={busyId === t.id} onClick={() => advanceStatus(t, 'dispatched', { dispatched_at: new Date().toISOString() })}>Dispatch</Button>
+                  {canManage && t.status === 'approved' && sideOk(t, 'dispatched') && (
+                    <Button variant="ghost" size="sm" disabled={busyId === t.id} onClick={() => advanceStatus(t, 'dispatched')}>Dispatch</Button>
                   )}
-                  {canManage && (t.status === 'dispatched' || t.status === 'in_transit') && (
-                    <Button variant="ghost" size="sm" disabled={busyId === t.id} onClick={() => advanceStatus(t, 'received', { received_at: new Date().toISOString() })}>{busyId === t.id ? 'Working…' : 'Mark Received'}</Button>
+                  {canManage && (t.status === 'dispatched' || t.status === 'in_transit') && sideOk(t, 'received') && (
+                    <Button variant="ghost" size="sm" disabled={busyId === t.id} onClick={() => advanceStatus(t, 'received')}>{busyId === t.id ? 'Working…' : 'Mark Received'}</Button>
                   )}
-                  {canManage && t.status === 'received' && (
-                    <Button variant="ghost" size="sm" disabled={busyId === t.id} onClick={() => advanceStatus(t, 'completed', { completed_at: new Date().toISOString() })}>Complete</Button>
+                  {canManage && t.status === 'received' && sideOk(t, 'completed') && (
+                    <Button variant="ghost" size="sm" disabled={busyId === t.id} onClick={() => advanceStatus(t, 'completed')}>Complete</Button>
                   )}
                 </div>
               </div>
@@ -273,8 +240,10 @@ function TransferModal({
 
   const selectedFromBranch = branches.find((b) => b.id === fromBranchId);
 
-  const loadProducts = async (bizId: string) => {
-    const { data } = await supabase.from('products').select('id,name,sku').eq('is_active', true).eq('business_id', bizId).order('name');
+  const loadProducts = async (srcBranchId: string) => {
+    // Products are branch-scoped: only what the SOURCE branch stocks can be
+    // transferred out.
+    const { data } = await supabase.from('products').select('id,name,sku').eq('is_active', true).eq('branch_id', srcBranchId).order('name');
     setProducts((data as Product[]) ?? []);
   };
 
@@ -282,17 +251,16 @@ function TransferModal({
   useEffect(() => {
     if (!selectedFromBranch || products.length > 0) return;
     let cancelled = false;
-    supabase.from('products').select('id,name,sku').eq('is_active', true).eq('business_id', selectedFromBranch.business_id).order('name').then(({ data }) => {
+    supabase.from('products').select('id,name,sku').eq('is_active', true).eq('branch_id', selectedFromBranch.id).order('name').then(({ data }) => {
       if (!cancelled && data) setProducts(data as Product[]);
     });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedFromBranch?.business_id]);
+  }, [selectedFromBranch?.id]);
 
   const handleFromChange = (bid: string) => {
     setFromBranchId(bid);
-    const br = branches.find((b) => b.id === bid);
-    if (br) loadProducts(br.business_id);
+    if (bid) void loadProducts(bid);
   };
 
   const addItem = () => setItems([...items, { product_id: '', quantity: '1' }]);

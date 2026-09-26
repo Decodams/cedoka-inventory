@@ -27,7 +27,7 @@ import { useSupabaseQuery, supabase } from '@/hooks/useSupabaseQuery';
 import { LoadingState } from '@/components/ui/States';
 import { Badge } from '@/components/ui/Badge';
 import { formatCurrency, formatDate, formatNumber, isOverdue } from '@/lib/dateUtils';
-import { hasRole, isAtLeast, accessibleBusinessIds } from '@/lib/rbac';
+import { hasRole, isAtLeast } from '@/lib/rbac';
 import type { Business, Branch, WeeklyReport, Issue, UserProfile, DailySale, Product } from '@/types/database';
 
 type RoleLevel = 'super_admin' | 'admin' | 'manager' | 'sales_person' | 'supervisor' | 'accountant' | 'inventory_officer' | 'transport_officer' | 'auditor' | 'farm_operations_officer';
@@ -80,39 +80,46 @@ export function DashboardPage() {
     ttlMs: 60_000,
   });
 
-  const accessibleBizIds = useMemo(() => accessibleBusinessIds(user), [user]);
+  // Strict branch scope for everyone below Super Admin (mirrors
+  // my_branch_ids() in the database).
+  const accessibleBranchIds = useMemo(() => {
+    if (isSuperAdmin) return [] as string[];
+    const ids = new Set<string>();
+    if (user?.branch_id) ids.add(user.branch_id);
+    for (const id of user?.branch_assignment_ids ?? []) if (id) ids.add(id);
+    return [...ids];
+  }, [isSuperAdmin, user]);
+  const branchScoped = !isSuperAdmin && accessibleBranchIds.length > 0;
 
   const branchesQuery = useMemo(() => {
     if (isSuperAdmin) return supabase.from('branches').select('*').eq('is_active', true).order('name');
-    if (isAdmin) {
-      if (accessibleBizIds.length === 0) return supabase.from('branches').select('*').eq('is_active', true).order('name');
-      return supabase.from('branches').select('*').eq('is_active', true).in('business_id', accessibleBizIds);
+    if (accessibleBranchIds.length > 0) {
+      return supabase.from('branches').select('*').eq('is_active', true).in('id', accessibleBranchIds).order('name');
     }
     if (user?.branch_id) return supabase.from('branches').select('*').eq('is_active', true).eq('id', user.branch_id);
     return supabase.from('branches').select('*').eq('is_active', true).order('name');
-  }, [isSuperAdmin, isAdmin, accessibleBizIds, user?.branch_id]);
+  }, [isSuperAdmin, accessibleBranchIds, user?.branch_id]);
   const { data: branches } = useSupabaseQuery<Branch[]>(() => branchesQuery, [], {
-    cacheKey: `dash:branches:${roleName}:${accessibleBizIds.join(',')}:${user?.branch_id ?? '-'}`,
+    cacheKey: `dash:branches:${roleName}:${accessibleBranchIds.join(',')}:${user?.branch_id ?? '-'}`,
     ttlMs: 60_000,
   });
 
   const reportsQuery = useMemo(() => {
     let q = supabase.from('weekly_reports').select(`*, business:businesses(id,name), branch:branches(id,name)`).order('created_at', { ascending: false });
-    if (!isSuperAdmin && isAdmin && accessibleBizIds.length > 0) q = q.in('business_id', accessibleBizIds);
+    if (branchScoped) q = q.in('branch_id', accessibleBranchIds);
     return q.limit(20);
-  }, [isSuperAdmin, isAdmin, accessibleBizIds]);
+  }, [branchScoped, accessibleBranchIds]);
   const { data: weeklyReports } = useSupabaseQuery<WeeklyReport[]>(() => reportsQuery, [reportsQuery], {
-    cacheKey: `dash:reports:${roleName}:${accessibleBizIds.join(',')}:${user?.branch_id ?? '-'}:${user?.id ?? '-'}`,
+    cacheKey: `dash:reports:${roleName}:${accessibleBranchIds.join(',')}:${user?.branch_id ?? '-'}:${user?.id ?? '-'}`,
   });
 
   const issuesQuery = useMemo(() => {
     let q = supabase.from('issues').select(`*, branch:branches(id,name), business:businesses(id,name)`).neq('status', 'closed').order('created_at', { ascending: false }).limit(10);
-    if (!isSuperAdmin && isAdmin && accessibleBizIds.length > 0) q = q.in('business_id', accessibleBizIds);
-    else if (!isAdmin && user?.branch_id) q = q.eq('branch_id', user.branch_id);
+    if (branchScoped) q = q.in('branch_id', accessibleBranchIds);
     return q;
-  }, [isSuperAdmin, isAdmin, accessibleBizIds, user?.branch_id]);
+  }, [branchScoped, accessibleBranchIds]);
   const { data: issues } = useSupabaseQuery<Issue[]>(() => issuesQuery, [issuesQuery], {
-    cacheKey: `dash:issues:${roleName}:${accessibleBizIds.join(',')}:${user?.branch_id ?? '-'}`,
+    cacheKey: `dash:issues:${roleName}:${accessibleBranchIds.join(',')}:${user?.branch_id ?? '-'}`,
   });
 
   const salesActive = isSalesPerson && !!user?.branch_id;
@@ -124,13 +131,13 @@ export function DashboardPage() {
     cacheKey: salesActive ? `dash:mysales:${user?.id}` : undefined,
   });
 
-  const productsActive = isSalesPerson && !!user?.business_id;
+  const productsActive = isSalesPerson && !!user?.branch_id;
   const productsQuery = useMemo(() => {
-    if (!productsActive || !user?.business_id) return null;
-    return supabase.from('products').select('id,name').eq('business_id', user.business_id).eq('is_active', true).order('name');
+    if (!productsActive || !user?.branch_id) return null;
+    return supabase.from('products').select('id,name').eq('branch_id', user.branch_id).eq('is_active', true).order('name');
   }, [productsActive, user]);
   const { data: products } = useSupabaseQuery<Product[]>(productsQuery ? () => productsQuery : null, [productsQuery], {
-    cacheKey: productsActive ? `ref:sp-products:${user?.business_id}` : undefined,
+    cacheKey: productsActive ? `ref:sp-products:${user?.branch_id}` : undefined,
     ttlMs: 60_000,
   });
 
@@ -208,9 +215,9 @@ export function DashboardPage() {
     const d0 = new Date(Date.now() - 29 * 86400000);
     const since = `${d0.getFullYear()}-${String(d0.getMonth() + 1).padStart(2, '0')}-${String(d0.getDate()).padStart(2, '0')}`;
     let q = supabase.from('daily_sales').select('sale_date,unit_price,quantity,discount_value,status').gte('sale_date', since).limit(1000);
-    if (!isSuperAdmin && accessibleBizIds.length > 0) q = q.in('business_id', accessibleBizIds);
+    if (branchScoped) q = q.in('branch_id', accessibleBranchIds);
     return q;
-  }, [isAdmin, isSuperAdmin, accessibleBizIds]);
+  }, [isAdmin, branchScoped, accessibleBranchIds]);
   const { data: recentSales } = useSupabaseQuery<Array<{
     sale_date: string;
     unit_price: number | string;
@@ -218,7 +225,7 @@ export function DashboardPage() {
     discount_value: number | string;
     status: string;
   }>>(revenue30Query ? () => revenue30Query : null, [revenue30Query], {
-    cacheKey: isAdmin ? `dash:rev30:${roleName}:${accessibleBizIds.join(',')}:${user?.id ?? '-'}` : undefined,
+    cacheKey: isAdmin ? `dash:rev30:${roleName}:${accessibleBranchIds.join(',')}:${user?.id ?? '-'}` : undefined,
     ttlMs: 60_000,
   });
   const revenue30 = useMemo(() => {

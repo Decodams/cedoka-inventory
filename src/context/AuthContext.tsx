@@ -30,7 +30,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // An Admin can be assigned to many businesses/branches, so the profile is
     // hydrated with the assignment rows the scope helpers (and the UI pickers)
     // rely on.
-    const [profileResult, businessAssignments, branchAssignments] = await Promise.all([
+    const [profileResult, businessAssignments, branchAssignments, managedBranches] = await Promise.all([
       supabase
         .from('user_profiles')
         .select(
@@ -43,6 +43,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .maybeSingle(),
       supabase.from('user_business_assignments').select('business_id').eq('user_id', userId),
       supabase.from('user_branch_assignments').select('branch_id').eq('user_id', userId),
+      supabase.from('branches').select('id').eq('manager_id', userId),
     ]);
 
     if (profileResult.error) {
@@ -54,8 +55,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const profile = profileResult.data as UserProfile;
     const businessIds = (businessAssignments.data ?? []) as Array<{ business_id: string }>;
     const branchIds = (branchAssignments.data ?? []) as Array<{ branch_id: string }>;
+    const managedIds = (managedBranches.data ?? []) as Array<{ id: string }>;
     profile.business_assignment_ids = businessIds.map((row) => row.business_id).filter(Boolean);
-    profile.branch_assignment_ids = branchIds.map((row) => row.branch_id).filter(Boolean);
+    // Branches where the user is the registered manager count exactly like
+    // assignments (mirrors can_access_branch() on the database side).
+    profile.branch_assignment_ids = [
+      ...branchIds.map((row) => row.branch_id),
+      ...managedIds.map((row) => row.id),
+    ].filter(Boolean);
     // The primary business/branch always counts as an assignment so scope
     // pickers pre-check exactly where the user is meant to work.
     if (profile.business_id && !profile.business_assignment_ids.includes(profile.business_id)) {

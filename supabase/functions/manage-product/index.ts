@@ -8,6 +8,7 @@ const ALLOWED_ROLES = new Set(['super_admin', 'admin', 'manager']);
 type ProductFields = {
   name?: string;
   business_id?: string;
+  branch_id?: string;
   category_id?: string | null;
   supplier_id?: string | null;
   sku?: string | null;
@@ -73,25 +74,57 @@ Deno.serve(async (request) => {
 
   const actorBusinessId = (actor as { business_id?: string | null }).business_id ?? null;
 
+  // Service role bypasses RLS, so the function itself enforces scope: the
+  // actor's accessible branches (primary + assignments + managed) and the
+  // businesses that own them (spec sections 6, 7, 8).
+  const accessibleBranches = new Set<string>();
+  const accessibleBusinesses = new Set<string>();
+  if (actorBusinessId) accessibleBusinesses.add(actorBusinessId);
+  const actorBranchId = (actor as { branch_id?: string | null }).branch_id ?? null;
+  if (actorBranchId) accessibleBranches.add(actorBranchId);
+  if (actorRole !== 'super_admin') {
+    const [{ data: branchAssignments }, { data: managedBranches }, { data: businessAssignments }] = await Promise.all([
+      admin.from('user_branch_assignments').select('branch_id').eq('user_id', caller.id),
+      admin.from('branches').select('id, business_id').eq('manager_id', caller.id),
+      admin.from('user_business_assignments').select('business_id').eq('user_id', caller.id),
+    ]);
+    (branchAssignments ?? []).forEach((row) => accessibleBranches.add(row.branch_id));
+    (managedBranches ?? []).forEach((row) => { accessibleBranches.add(row.id); accessibleBusinesses.add(row.business_id); });
+    (businessAssignments ?? []).forEach((row) => accessibleBusinesses.add(row.business_id));
+    const [{ data: branchBusinesses }] = await Promise.all([
+      accessibleBranches.size
+        ? admin.from('branches').select('id, business_id').in('id', [...accessibleBranches])
+        : Promise.resolve({ data: [] as Array<{ id: string; business_id: string }> }),
+    ]);
+    (branchBusinesses ?? []).forEach((row) => accessibleBusinesses.add(row.business_id));
+  }
+
+  const assertBranchInScope = async (branchId: string | null | undefined): Promise<{ id: string; business_id: string } | null> => {
+    if (!branchId) return null;
+    if (actorRole !== 'super_admin' && !accessibleBranches.has(branchId)) return null;
+    const { data: branch } = await admin.from('branches').select('id, business_id').eq('id', branchId).maybeSingle();
+    return branch ?? null;
+  };
+
   if (p_action === 'delete') {
     if (!p_product_id) return reply({ error: 'Product ID is required to delete' }, 400);
     if (actorRole === 'manager') return reply({ error: 'Managers can deactivate products but cannot delete them' }, 403);
-    const { data: target, error: targetError } = await admin.from('products').select('id,business_id,name').eq('id', p_product_id).maybeSingle();
+    const { data: target, error: targetError } = await admin.from('products').select('id,business_id,branch_id,name').eq('id', p_product_id).maybeSingle();
     if (targetError) return reply({ error: targetError.message }, 500);
     if (!target) return reply({ error: 'Product not found' }, 404);
-    if (actorRole === 'admin' && actorBusinessId && target.business_id !== actorBusinessId) {
-      return reply({ error: 'Admins can only delete products in their own business' }, 403);
+    if (actorRole !== 'super_admin' && !(await assertBranchInScope(target.branch_id))) {
+      return reply({ error: 'Products are branch-scoped; this product is outside your branch scope' }, 403);
     }
     const { data: inUse } = await admin.from('sale_items').select('id').eq('product_id', p_product_id).limit(1);
     if (inUse && inUse.length > 0) {
       const { error: deactivateError } = await admin.from('products').update({ is_active: false }).eq('id', p_product_id);
       if (deactivateError) return reply({ error: deactivateError.message }, 400);
-      await admin.from('audit_log').insert({ actor_id: caller.id, action: 'product.deactivated_on_delete', target_table: 'products', target_id: p_product_id, metadata: { name: target.name } });
+      await admin.from('audit_log').insert({ actor_id: caller.id, action: 'product.deactivated_on_delete', target_table: 'products', target_id: p_product_id, metadata: { name: target.name }, branch_id: target.branch_id });
       return reply({ success: true, deactivated: true });
     }
     const { error: deleteError } = await admin.from('products').delete().eq('id', p_product_id);
     if (deleteError) return reply({ error: deleteError.message }, 400);
-    await admin.from('audit_log').insert({ actor_id: caller.id, action: 'product.deleted', target_table: 'products', target_id: p_product_id, metadata: { name: target.name } });
+    await admin.from('audit_log').insert({ actor_id: caller.id, action: 'product.deleted', target_table: 'products', target_id: p_product_id, metadata: { name: target.name }, branch_id: target.branch_id });
     return reply({ success: true });
   }
 
@@ -99,11 +132,14 @@ Deno.serve(async (request) => {
   if (p_action === 'create') {
     if (!fields.name) return reply({ error: 'Product name is required' }, 400);
     if (!fields.business_id) return reply({ error: 'Business unit is required' }, 400);
-    if (actorRole === 'admin' && actorBusinessId && fields.business_id !== actorBusinessId) {
-      return reply({ error: 'Admins can only create products in their own business' }, 403);
+    if (!fields.branch_id) return reply({ error: 'Branch is required (products are branch-scoped)' }, 400);
+    const branch = await assertBranchInScope(fields.branch_id);
+    if (!branch) return reply({ error: 'Branch is outside your scope' }, 403);
+    if (branch.business_id !== fields.business_id) {
+      return reply({ error: 'Branch does not belong to the selected business' }, 400);
     }
-    if (actorRole === 'manager' && actorBusinessId && fields.business_id !== actorBusinessId) {
-      return reply({ error: 'Managers can only create products in their own business' }, 403);
+    if (actorRole !== 'super_admin' && !accessibleBusinesses.has(fields.business_id)) {
+      return reply({ error: 'You can only create products in your own business' }, 403);
     }
     const { data: business } = await admin.from('businesses').select('name,category').eq('id', fields.business_id).maybeSingle();
     const hay = `${business?.name ?? ''} ${business?.category ?? ''}`.toLowerCase();
@@ -118,6 +154,7 @@ Deno.serve(async (request) => {
     const { data: created, error: createError } = await admin.from('products').insert({
       name: fields.name,
       business_id: fields.business_id,
+      branch_id: fields.branch_id,
       category_id: fields.category_id ?? null,
       supplier_id: fields.supplier_id ?? null,
       sku: fields.sku ?? null,
@@ -134,21 +171,33 @@ Deno.serve(async (request) => {
       warranty_months: fields.warranty_months ?? null,
       expiry_tracking: fields.expiry_tracking ?? false,
       is_active: fields.is_active ?? true,
+      created_by: caller.id,
     }).select('*').single();
     if (createError) return reply({ error: createError.message }, 400);
-    await admin.from('audit_log').insert({ actor_id: caller.id, action: 'product.created', target_table: 'products', target_id: created.id, metadata: { name: fields.name, business_id: fields.business_id } });
+    await admin.from('audit_log').insert({ actor_id: caller.id, action: 'product.created', target_table: 'products', target_id: created.id, metadata: { name: fields.name, business_id: fields.business_id }, branch_id: fields.branch_id });
     return reply({ product: created });
   }
 
   // update
   if (!p_product_id) return reply({ error: 'Product ID is required to update' }, 400);
-  const { data: target, error: targetError } = await admin.from('products').select('id,business_id').eq('id', p_product_id).maybeSingle();
+  const { data: target, error: targetError } = await admin.from('products').select('id,business_id,branch_id').eq('id', p_product_id).maybeSingle();
   if (targetError) return reply({ error: targetError.message }, 500);
   if (!target) return reply({ error: 'Product not found' }, 404);
-  const effectiveBusinessId = fields.business_id ?? target.business_id;
-  if ((actorRole === 'admin' || actorRole === 'manager') && actorBusinessId && effectiveBusinessId !== actorBusinessId) {
-    return reply({ error: 'You can only update products in your own business' }, 403);
+  if (fields.branch_id && fields.branch_id !== target.branch_id) {
+    return reply({ error: 'A product cannot be moved between branches' }, 400);
   }
+  if (actorRole !== 'super_admin') {
+    if (!(await assertBranchInScope(target.branch_id))) {
+      return reply({ error: 'Products are branch-scoped; this product is outside your branch scope' }, 403);
+    }
+    if (fields.business_id && fields.business_id !== target.business_id) {
+      return reply({ error: 'A product cannot be moved between businesses' }, 400);
+    }
+    if (!accessibleBusinesses.has(target.business_id)) {
+      return reply({ error: 'You can only update products in your own business' }, 403);
+    }
+  }
+  const effectiveBusinessId = target.business_id;
   const { data: business } = await admin.from('businesses').select('name,category').eq('id', effectiveBusinessId).maybeSingle();
   const hay = `${business?.name ?? ''} ${business?.category ?? ''}`.toLowerCase();
   if (hay.includes('farm') || hay.includes('agric')) {
@@ -160,7 +209,7 @@ Deno.serve(async (request) => {
   }
   const patch: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(fields)) {
-    if (key === 'business_id' || key === 'p_action' || key === 'p_product_id') continue;
+    if (key === 'business_id' || key === 'branch_id' || key === 'p_action' || key === 'p_product_id') continue;
     if (value !== undefined) patch[key] = value;
   }
   if (typeof patch['serial_tracking_mode'] === 'string' && !['none', 'unique', 'shared'].includes(patch['serial_tracking_mode'] as string)) {
@@ -182,6 +231,6 @@ Deno.serve(async (request) => {
   if (Object.keys(patch).length === 0) return reply({ error: 'Nothing to update' }, 400);
   const { error: updateError } = await admin.from('products').update(patch).eq('id', p_product_id);
   if (updateError) return reply({ error: updateError.message }, 400);
-  await admin.from('audit_log').insert({ actor_id: caller.id, action: 'product.updated', target_table: 'products', target_id: p_product_id, metadata: { fields: Object.keys(patch) } });
+  await admin.from('audit_log').insert({ actor_id: caller.id, action: 'product.updated', target_table: 'products', target_id: p_product_id, metadata: { fields: Object.keys(patch) }, branch_id: target.branch_id });
   return reply({ success: true });
 });

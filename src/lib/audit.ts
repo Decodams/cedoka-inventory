@@ -9,6 +9,7 @@ export async function logAudit(
   targetTable: string,
   targetId?: string | null,
   metadata?: AuditMetadata,
+  scope?: { business_id?: string | null; branch_id?: string | null },
 ): Promise<void> {
   try {
     const {
@@ -20,6 +21,10 @@ export async function logAudit(
       target_table: targetTable,
       target_id: targetId ?? null,
       metadata: metadata ?? {},
+      // Scope columns (spec section 28): when a branch is provided the
+      // database trigger derives business/location automatically.
+      ...(scope?.branch_id ? { branch_id: scope.branch_id } : {}),
+      ...(scope?.business_id ? { business_id: scope.business_id } : {}),
     });
   } catch {
     // Audit logging must never block the primary operation.

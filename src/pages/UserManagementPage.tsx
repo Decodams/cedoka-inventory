@@ -103,6 +103,23 @@ export function UserManagementPage() {
   if (loading) return <LoadingState />;
   if (error) return <ErrorState message="Could not load users." onRetry={refetch} />;
 
+  // Strict branch scope for Admins/Managers (mirrors can_view_user_records()
+  // and the update-user-role edge function): targets must sit in one of the
+  // actor's branches; legacy branch-less targets must be in an accessible
+  // business.
+  const myBranchIds = (() => {
+    const set = new Set<string>();
+    if (user?.branch_id) set.add(user.branch_id);
+    for (const id of user?.branch_assignment_ids ?? []) if (id) set.add(id);
+    return [...set];
+  })();
+  const inActorScope = (target: UserProfile): boolean => {
+    if (target.branch_id) return myBranchIds.includes(target.branch_id);
+    if (!target.business_id) return false;
+    const actorBizzes = accessibleBusinessIds(user);
+    return actorBizzes.length > 0 && actorBizzes.includes(target.business_id);
+  };
+
   const canEdit = (target: UserProfile) => {
     if (!user || !target) return false;
     const targetRole = (target.role as { name?: string } | null)?.name;
@@ -111,8 +128,8 @@ export function UserManagementPage() {
     const actorRank = ROLE_RANK[(user.role?.name ?? '')] ?? -1;
     const targetRank = ROLE_RANK[targetRole ?? ''] ?? -1;
     if (actorRank <= targetRank) return false;
-    if (hasRole(user, 'admin')) { const actorBiz = (user as { business_id?: string | null }).business_id ?? null; if (target.business_id && actorBiz && target.business_id !== actorBiz) return false; }
-    if (hasRole(user, 'manager')) { const actorBranch = (user as { branch_id?: string | null }).branch_id ?? null; if (target.branch_id && actorBranch && target.branch_id !== actorBranch) return false; }
+    if (hasRole(user, 'admin') && !inActorScope(target)) return false;
+    if (hasRole(user, 'manager') && !inActorScope(target)) return false;
     return true;
   };
 
@@ -124,8 +141,8 @@ export function UserManagementPage() {
     const actorRank = ROLE_RANK[(user.role?.name ?? '')] ?? -1;
     const targetRank = ROLE_RANK[targetRole ?? ''] ?? -1;
     if (actorRank <= targetRank) return false;
-    if (hasRole(user, 'admin')) { const actorBiz = (user as { business_id?: string | null }).business_id ?? null; if (target.business_id && actorBiz && target.business_id !== actorBiz) return false; }
-    if (hasRole(user, 'manager')) { const actorBranch = (user as { branch_id?: string | null }).branch_id ?? null; if (target.branch_id && actorBranch && target.branch_id !== actorBranch) return false; }
+    if (hasRole(user, 'admin') && !inActorScope(target)) return false;
+    if (hasRole(user, 'manager') && !inActorScope(target)) return false;
     return true;
   };
 
@@ -308,11 +325,26 @@ function EditUserModal({
   const roleNameForForm = roles.find((r) => r.id === roleId)?.name ?? '';
   const isMultiBusinessRole = roleNameForForm === 'admin';
 
+  const myBranchIds = useMemo(() => {
+    const set = new Set<string>();
+    if (currentUser?.branch_id) set.add(currentUser.branch_id);
+    for (const id of currentUser?.branch_assignment_ids ?? []) if (id) set.add(id);
+    return [...set];
+  }, [currentUser]);
+
   const availableBranches = useMemo(() => {
     if (businessIds.length === 0) return [];
-    if (hasRole(currentUser, 'super_admin') || hasRole(currentUser, 'admin')) return branches.filter((b) => businessIds.includes(b.business_id));
-    return [];
-  }, [branches, businessIds, currentUser]);
+    // The branches ref itself is already RLS-filtered to the actor's scope;
+    // the extra filter keeps super/admin/manager pickers explicit about what
+    // they may assign (spec section 12).
+    let scoped = branches;
+    if (hasRole(currentUser, 'admin') || hasRole(currentUser, 'manager')) {
+      scoped = branches.filter((b) => myBranchIds.includes(b.id));
+    } else if (!hasRole(currentUser, 'super_admin')) {
+      scoped = [];
+    }
+    return scoped.filter((b) => businessIds.includes(b.business_id));
+  }, [branches, businessIds, currentUser, myBranchIds]);
 
   const canManageUnits = hasRole(currentUser, 'super_admin') || hasRole(currentUser, 'admin');
   const availableUnits = useMemo(() => {
@@ -508,12 +540,25 @@ function CreateUserModal({
   }, [currentUser]);
   void autoDetectedBusinessId;
 
+  const myBranchIdsCreate = useMemo(() => {
+    const set = new Set<string>();
+    if (currentUser?.branch_id) set.add(currentUser.branch_id);
+    for (const id of currentUser?.branch_assignment_ids ?? []) if (id) set.add(id);
+    return [...set];
+  }, [currentUser]);
+
   const availableBranches = useMemo(() => {
     if (businessIds.length === 0) return [];
-    if (hasRole(currentUser, 'super_admin') || hasRole(currentUser, 'admin')) return branches.filter((b) => businessIds.includes(b.business_id));
-    if (hasRole(currentUser, 'manager')) return branches.filter((b) => b.id === currentUser?.branch_id);
-    return [];
-  }, [branches, businessIds, currentUser]);
+    // Branch options stay inside the actor's scope (the ref is already
+    // RLS-filtered; this mirrors create-user-account's validation).
+    let scoped = branches;
+    if (hasRole(currentUser, 'admin') || hasRole(currentUser, 'manager')) {
+      scoped = branches.filter((b) => myBranchIdsCreate.includes(b.id));
+    } else if (!hasRole(currentUser, 'super_admin')) {
+      scoped = [];
+    }
+    return scoped.filter((b) => businessIds.includes(b.business_id));
+  }, [branches, businessIds, currentUser, myBranchIdsCreate]);
 
   const myBusinessIdsCreate = useMemo(
     () => (hasRole(currentUser, 'super_admin') ? businesses.map((b) => b.id) : accessibleBusinessIds(currentUser)),

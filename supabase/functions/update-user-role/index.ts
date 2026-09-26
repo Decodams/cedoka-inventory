@@ -64,17 +64,45 @@ Deno.serve(async (request) => {
   const targetRank = ROLE_RANK[targetRole ?? ''] ?? -1;
   if (actorRank <= targetRank) return reply({ error: 'You cannot change the role of a user at or above your rank' }, 403);
 
-  // Business scope enforcement for admins
-  if (actorRole === 'admin') {
-    const actorBiz = (actor as { business_id?: string | null }).business_id ?? null;
-    const biz = body.p_business_id ?? target.business_id;
-    if (biz && actorBiz && biz !== actorBiz) return reply({ error: 'Admins can only assign users within their own business' }, 403);
-  }
-
-  // Branch scope enforcement for managers
-  if (actorRole === 'manager') {
-    const actorBranch = (actor as { branch_id?: string | null }).branch_id ?? null;
-    if (body.p_branch_id && actorBranch && body.p_branch_id !== actorBranch) return reply({ error: 'Managers can only assign users within their own branch' }, 403);
+  // Service role bypasses RLS, so scope is validated here: the actor's
+  // accessible branches (primary + assignments + managed) and businesses
+  // (spec sections 6, 12, 20).
+  const actorBusinessId = (actor as { business_id?: string | null }).business_id ?? null;
+  const actorBranchId = (actor as { branch_id?: string | null }).branch_id ?? null;
+  const accessibleBranches = new Set<string>();
+  const accessibleBusinesses = new Set<string>();
+  if (actorBusinessId) accessibleBusinesses.add(actorBusinessId);
+  if (actorBranchId) accessibleBranches.add(actorBranchId);
+  if (actorRole !== 'super_admin') {
+    const [{ data: branchAssignments }, { data: managedBranches }, { data: businessAssignments }] = await Promise.all([
+      admin.from('user_branch_assignments').select('branch_id').eq('user_id', caller.id),
+      admin.from('branches').select('id, business_id').eq('manager_id', caller.id),
+      admin.from('user_business_assignments').select('business_id').eq('user_id', caller.id),
+    ]);
+    (branchAssignments ?? []).forEach((row) => accessibleBranches.add(row.branch_id));
+    (managedBranches ?? []).forEach((row) => { accessibleBranches.add(row.id); accessibleBusinesses.add(row.business_id); });
+    (businessAssignments ?? []).forEach((row) => accessibleBusinesses.add(row.business_id));
+    if (accessibleBranches.size) {
+      const { data: branchRows } = await admin.from('branches').select('id, business_id').in('id', [...accessibleBranches]);
+      (branchRows ?? []).forEach((row) => accessibleBusinesses.add(row.business_id));
+    }
+    if (body.p_business_id && !accessibleBusinesses.has(body.p_business_id)) {
+      return reply({ error: 'You can only assign users within your own business scope' }, 403);
+    }
+    if (body.p_branch_id && !accessibleBranches.has(body.p_branch_id)) {
+      return reply({ error: 'You can only assign users within your own branch scope' }, 403);
+    }
+    // The TARGET must also sit inside the actor's scope (spec sections 6 and
+    // 12): branch-scoped users live in the actor's branches; legacy
+    // branch-less users must at least belong to an accessible business.
+    const targetBranchId = (target as { branch_id?: string | null }).branch_id ?? null;
+    const targetBusinessId = (target as { business_id?: string | null }).business_id ?? null;
+    if (targetBranchId && !accessibleBranches.has(targetBranchId)) {
+      return reply({ error: 'This user is outside your branch scope' }, 403);
+    }
+    if (!targetBranchId && targetBusinessId && !accessibleBusinesses.has(targetBusinessId)) {
+      return reply({ error: 'This user is outside your business scope' }, 403);
+    }
   }
 
   // Resolve role if provided
@@ -86,17 +114,32 @@ Deno.serve(async (request) => {
     roleId = role.id;
   }
 
-  // Only Admin accounts may carry multiple business/branch assignments.  Keep
-  // the primary profile fields for compatibility with existing screens.
+  // Admin and Manager accounts may carry multiple branch assignments
+  // (spec section 12). Keep the primary profile fields for compatibility
+  // with existing screens.
   const nextRole = roleName ?? targetRole;
   const businessIds = [...new Set((body.p_business_ids ?? (body.p_business_id ? [body.p_business_id] : [])).filter(Boolean))];
   const branchIds = [...new Set((body.p_branch_ids ?? (body.p_branch_id ? [body.p_branch_id] : [])).filter(Boolean))];
+  if (branchIds.length) {
+    const { data: validBranches } = await admin.from('branches').select('id,business_id').in('id', branchIds);
+    if ((validBranches?.length ?? 0) !== branchIds.length) return reply({ error: 'One or more selected branches are invalid' }, 400);
+    if (actorRole !== 'super_admin' && branchIds.some((branchId) => !accessibleBranches.has(branchId))) {
+      return reply({ error: 'One or more selected branches are outside your scope' }, 403);
+    }
+    if (businessIds.length && validBranches?.some((branch) => !businessIds.includes(branch.business_id))) {
+      return reply({ error: 'Each selected branch must belong to a selected business' }, 400);
+    }
+    if (actorRole !== 'super_admin' && businessIds.some((bizId) => !accessibleBusinesses.has(bizId))) {
+      return reply({ error: 'One or more selected businesses are outside your scope' }, 403);
+    }
+  } else if (actorRole !== 'super_admin' && businessIds.some((bizId) => !accessibleBusinesses.has(bizId))) {
+    return reply({ error: 'One or more selected businesses are outside your scope' }, 403);
+  }
+
   if (nextRole === 'admin') {
     if (!businessIds.length) return reply({ error: 'An Admin must have at least one business assignment' }, 400);
     const { data: validBusinesses } = await admin.from('businesses').select('id').in('id', businessIds);
     if ((validBusinesses?.length ?? 0) !== businessIds.length) return reply({ error: 'One or more selected businesses are invalid' }, 400);
-    const { data: validBranches } = branchIds.length ? await admin.from('branches').select('id,business_id').in('id', branchIds) : { data: [] as Array<{ id: string; business_id: string }> };
-    if ((validBranches?.length ?? 0) !== branchIds.length || validBranches?.some((branch) => !businessIds.includes(branch.business_id))) return reply({ error: 'Each selected branch must belong to a selected business' }, 400);
     const assignmentsError = await admin.from('user_business_assignments').delete().eq('user_id', targetUserId);
     if (assignmentsError.error) return reply({ error: assignmentsError.error.message }, 500);
     const branchAssignmentsError = await admin.from('user_branch_assignments').delete().eq('user_id', targetUserId);
@@ -105,8 +148,14 @@ Deno.serve(async (request) => {
     if (insertBusinessError) return reply({ error: insertBusinessError.message }, 500);
     if (branchIds.length) {
       const { error: insertBranchError } = await admin.from('user_branch_assignments').insert(branchIds.map((branch_id) => ({ user_id: targetUserId, branch_id })));
-      if (insertBranchError) return reply({ error: insertBranchError.message }, 500);
+      if (insertBranchError) return reply({ error: insertBranchError.message }, 400);
     }
+  } else if (nextRole === 'manager' && branchIds.length) {
+    // Managers: rewrite their branch set (primary + assignments).
+    const branchAssignmentsError = await admin.from('user_branch_assignments').delete().eq('user_id', targetUserId);
+    if (branchAssignmentsError.error) return reply({ error: branchAssignmentsError.error.message }, 500);
+    const { error: insertBranchError } = await admin.from('user_branch_assignments').insert(branchIds.map((branch_id) => ({ user_id: targetUserId, branch_id })));
+    if (insertBranchError) return reply({ error: insertBranchError.message }, 400);
   }
 
   const { error: updateError } = await admin.from('user_profiles').update({
@@ -114,8 +163,9 @@ Deno.serve(async (request) => {
     ...(nextRole === 'admin' ? { business_id: businessIds[0], branch_id: branchIds[0] ?? null } : {}),
     ...(nextRole !== 'admin' && body.p_business_id !== undefined ? { business_id: body.p_business_id } : {}),
     ...(nextRole !== 'admin' && body.p_branch_id !== undefined ? { branch_id: body.p_branch_id } : {}),
+    ...(nextRole === 'manager' && body.p_branch_id === undefined && branchIds.length ? { branch_id: branchIds[0] } : {}),
   }).eq('id', targetUserId);
-  if (updateError) return reply({ error: updateError.message }, 500);
+  if (updateError) return reply({ error: updateError.message }, 400);
 
   await admin.from('audit_log').insert({
     actor_id: caller.id,
@@ -123,6 +173,7 @@ Deno.serve(async (request) => {
     target_table: 'user_profiles',
     target_id: targetUserId,
     metadata: { role: roleName, business_id: body.p_business_id, branch_id: body.p_branch_id, business_ids: businessIds, branch_ids: branchIds },
+    branch_id: branchIds[0] ?? body.p_branch_id ?? target.branch_id ?? null,
   });
 
   return reply({ success: true });

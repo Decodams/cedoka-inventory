@@ -12,7 +12,7 @@ import { isAtLeast, hasRole } from '@/lib/rbac';
 import { isFarmBusiness, unitOptionsFor } from '@/lib/business';
 import { edgeErrorMessage } from '@/lib/edge';
 import { logAudit } from '@/lib/audit';
-import type { Product, Business, BusinessMeasurementUnit, Category, ProductSerialNumber, SerialTrackingMode, Supplier, UserProfile } from '@/types/database';
+import type { Product, Business, BusinessMeasurementUnit, Category, ProductSerialNumber, SerialTrackingMode, Supplier, UserProfile, Branch } from '@/types/database';
 
 export function ProductsPage() {
   const { user } = useAuth();
@@ -75,6 +75,17 @@ export function ProductsPage() {
     return [...set];
   }, [isExecutive, isAdmin, user?.business_id, myBusinessAssignments]);
 
+  // Strict branch scope (mirrors my_branch_ids() in the database) — every
+  // role below Super Admin only sees products stocked at their branches.
+  const accessibleBranchIds = useMemo(() => {
+    if (isExecutive) return [] as string[];
+    const set = new Set<string>();
+    if (user?.branch_id) set.add(user.branch_id);
+    for (const id of user?.branch_assignment_ids ?? []) if (id) set.add(id);
+    return [...set];
+  }, [isExecutive, user]);
+  const branchScoped = !isExecutive && accessibleBranchIds.length > 0;
+
   const visibleBusinesses = useMemo(() => {
     if (isExecutive) return businesses ?? [];
     if (isAdmin && accessibleBusinessIds && accessibleBusinessIds.length > 0) {
@@ -88,18 +99,12 @@ export function ProductsPage() {
     const to = page * pageSize - 1;
     let q = supabase
       .from('products')
-      .select(`*, category:categories(id,name), supplier:suppliers(id,name), business:businesses(id,name)`, { count: 'exact' })
+      .select(`*, category:categories(id,name), supplier:suppliers(id,name), business:businesses(id,name), branch:branches(id,name)`, { count: 'exact' })
       .order('name')
       .range(from, to);
-    if (!isExecutive) {
-      if (isAdmin) {
-        if (accessibleBusinessIds && accessibleBusinessIds.length > 0) {
-          q = q.in('business_id', accessibleBusinessIds);
-        }
-      } else if (user?.business_id) {
-        q = q.eq('business_id', user.business_id);
-      }
-    }
+    // Branch scope first (RLS enforces the same rule; this keeps the request
+    // precise and the UI consistent for every non-super role).
+    if (branchScoped) q = q.in('branch_id', accessibleBranchIds);
     if (filterBusiness !== 'all') q = q.eq('business_id', filterBusiness);
     // Search runs server-side across the whole catalog (not just this page).
     const needle = search.trim();
@@ -108,12 +113,12 @@ export function ProductsPage() {
       if (safe) q = q.or(`name.ilike.%${safe}%,sku.ilike.%${safe}%,brand.ilike.%${safe}%`);
     }
     return q;
-  }, [isExecutive, isAdmin, user, accessibleBusinessIds, filterBusiness, search, page, pageSize]);
+  }, [branchScoped, accessibleBranchIds, filterBusiness, search, page, pageSize]);
 
   const { data: products, loading, error, count, refetch } = useSupabaseQuery<Product[]>(
     () => productsQuery,
     [productsQuery],
-    { cacheKey: `products:${user?.id ?? 'anon'}:${user?.business_id ?? '-'}:${filterBusiness}:${(accessibleBusinessIds ?? []).join(',')}:${page}:${search.trim().toLowerCase()}` },
+    { cacheKey: `products:${user?.id ?? 'anon'}:${user?.branch_id ?? '-'}:${filterBusiness}:${accessibleBranchIds.join(',')}:${page}:${search.trim().toLowerCase()}` },
   );
 
   // Global serial search: find products by serial number across the catalog.
@@ -145,11 +150,11 @@ export function ProductsPage() {
       .filter((p): p is Product => !!p && !base.some((b) => b.id === p.id))
       .filter((p) => {
         if (isExecutive) return true;
-        if (isAdmin) return !accessibleBusinessIds || accessibleBusinessIds.length === 0 || accessibleBusinessIds.includes(p.business_id);
-        return !user?.business_id || p.business_id === user.business_id;
+        if (branchScoped) return accessibleBranchIds.includes(p.branch_id);
+        return !user?.branch_id || p.branch_id === user.branch_id;
       });
     return [...base, ...extras];
-  }, [products, serialMatches, serialNeedle, isExecutive, isAdmin, accessibleBusinessIds, user?.business_id]);
+  }, [products, serialMatches, serialNeedle, isExecutive, branchScoped, accessibleBranchIds, user?.branch_id]);
 
   // Real stock per product (sum of inventory_balances rows visible to this
   // user's branch scope). Powers the Stock column and the detail modal.
@@ -237,6 +242,7 @@ export function ProductsPage() {
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50/50">
                     <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5">Name</th>
+                    <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5">Branch</th>
                     <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5">Category</th>
                     <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5">Brand</th>
                     <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5">Unit</th>
@@ -275,6 +281,13 @@ export function ProductsPage() {
                             {serialMatchedIds.has(p.id) && <p className="text-[11px] font-medium text-blue-600 truncate">Serial match: {search.trim()}</p>}
                           </div>
                         </div>
+                      </td>
+                      <td className="px-3 py-3 sm:px-5">
+                        {p.branch ? (
+                          <span className="text-sm text-slate-600">{p.branch.name}</span>
+                        ) : (
+                          <span className="text-slate-400 text-sm">—</span>
+                        )}
                       </td>
                       <td className="px-3 py-3 sm:px-5">{p.category ? <Badge className="bg-slate-100 text-slate-600 border-slate-200"><Tag size={10} className="mr-1" />{p.category.name}</Badge> : <span className="text-slate-400 text-sm">—</span>}</td>
                       <td className="px-3 py-3 sm:px-5">{p.brand ? <span className="text-sm text-slate-600">{p.brand}</span> : <span className="text-slate-400">—</span>}</td>
@@ -855,6 +868,18 @@ function ProductFormModal({
 
   const [name, setName] = useState(product?.name ?? '');
   const [businessId, setBusinessId] = useState(product?.business_id ?? currentUser?.business_id ?? '');
+  // Products are branch-scoped: the modal always seeds a branch (creator's
+  // own branch by default) and the field is locked after creation.
+  const [branchId, setBranchId] = useState(product?.branch_id ?? currentUser?.branch_id ?? '');
+  const branchesQuery = useMemo(
+    () => (businessId ? supabase.from('branches').select('id,name').eq('business_id', businessId).eq('is_active', true).order('name') : null),
+    [businessId],
+  );
+  const { data: availableBranches } = useSupabaseQuery<Branch[]>(
+    branchesQuery ? () => branchesQuery : null,
+    [branchesQuery],
+    { cacheKey: businessId ? `modal:branches:${businessId}` : undefined, ttlMs: 60_000 },
+  );
   const [sku, setSku] = useState(product?.sku ?? '');
   const [brand, setBrand] = useState(product?.brand ?? '');
   const [model, setModel] = useState(product?.model ?? '');
@@ -1000,6 +1025,9 @@ function ProductFormModal({
 
   const handleBusinessChange = (next: string) => {
     setBusinessId(next);
+    // A branch can never outlive its business: reset the picker, keeping the
+    // user's own branch only when it still belongs to the selected business.
+    setBranchId(next === currentUser?.business_id ? (currentUser?.branch_id ?? '') : '');
     const nextBusiness = availableBusinesses.find((b) => b.id === next) ?? null;
     if (isFarmBusiness(nextBusiness)) {
       setSku('');
@@ -1013,11 +1041,17 @@ function ProductFormModal({
       setError('Name and business unit are required');
       return;
     }
+    if (!branchId) {
+      setError('Branch is required — every product is stocked at exactly one branch.');
+      return;
+    }
     if (!unit.trim()) {
       setError(isFarm ? 'Unit is required (e.g. bag, crate, basket, kilo)' : 'Unit is required (e.g. pcs, box)');
       return;
     }
-    const duplicate = allProducts.find((p) => p.id !== product?.id && p.business_id === businessId && p.name.trim().toLowerCase() === name.trim().toLowerCase());
+    // Same-name guard is branch-scoped now: two branches may stock identically
+    // named products (the database unique key is business+branch+sku).
+    const duplicate = allProducts.find((p) => p.id !== product?.id && p.business_id === businessId && p.branch_id === branchId && p.name.trim().toLowerCase() === name.trim().toLowerCase());
     if (duplicate) {
       setError(`A product named "${duplicate.name}" already exists. Edit it instead of adding a duplicate.`);
       return;
@@ -1053,6 +1087,7 @@ function ProductFormModal({
     const payload = {
       name: name.trim(),
       business_id: businessId,
+      branch_id: branchId,
       category_id: product?.category_id ?? null,
       supplier_id: isFarm ? null : (product?.supplier_id ?? null),
       sku: isFarm ? null : (sku.trim() || null),
@@ -1102,28 +1137,13 @@ function ProductFormModal({
       }
     };
     const seedBalances = async (productId: string, opening: number) => {
-      // Seed exactly ONE balance row so a new product never repeats once per
-      // branch (the historic 3× duplication): the creator's own branch when it
-      // belongs to this business, otherwise the first active branch. Other
-      // branches get their rows lazily via record_inventory_movement (sales,
-      // transfers, GRN), which also copies the product's min/reorder levels.
+      // The product lives at exactly one branch, so its opening stock seeds
+      // there (other branches get their rows lazily via
+      // record_inventory_movement, which also copies min/reorder levels).
       try {
-        const { data: bizBranches } = await supabase
-          .from('branches')
-          .select('id, created_at')
-          .eq('business_id', businessId)
-          .eq('is_active', true)
-          .order('created_at');
-
-        const branches = (bizBranches ?? []) as Array<{ id: string }>;
-        if (branches.length === 0) return;
-        const ownBranch = currentUser?.branch_id && branches.some((b) => b.id === currentUser?.branch_id)
-          ? currentUser.branch_id
-          : undefined;
-        const targetBranch = ownBranch ?? branches[0].id;
         const { error: seedErr } = await supabase.from('inventory_balances').insert({
           product_id: productId,
-          branch_id: targetBranch,
+          branch_id: branchId,
           opening_stock: opening,
           current_stock: opening,
           min_stock_level: payload.min_stock_level,
@@ -1294,6 +1314,10 @@ function ProductFormModal({
           <Select label="Business Unit" value={businessId} onChange={(e) => handleBusinessChange(e.target.value)} disabled={!!product}>
             <option value="">Select...</option>
             {availableBusinesses.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </Select>
+          <Select label="Branch" value={branchId} onChange={(e) => setBranchId(e.target.value)} disabled={!!product}>
+            <option value="">{businessId ? 'Select a branch...' : 'Select a business first...'}</option>
+            {(availableBranches ?? []).map((br) => <option key={br.id} value={br.id}>{br.name}</option>)}
           </Select>
           {!isFarm && (
             <>

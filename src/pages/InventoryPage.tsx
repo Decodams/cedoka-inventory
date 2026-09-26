@@ -8,7 +8,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Input, Select, Textarea } from '@/components/ui/Form';
 import { Badge } from '@/components/ui/Badge';
 import { formatNumber, formatDateTime } from '@/lib/dateUtils';
-import { isAtLeast } from '@/lib/rbac';
+import { isAtLeast, hasRole } from '@/lib/rbac';
 import { MOVEMENT_TYPE_STYLES, MOVEMENT_TYPE_LABELS, MOVEMENT_TYPE_SIGNS } from '@/lib/statusStyles';
 import { logAudit } from '@/lib/audit';
 import type { InventoryBalance, InventoryTransaction, Branch, MovementType, Product, InventoryAsset, InventoryAssetMovement, AssetType, AssetStatus, AssetCondition } from '@/types/database';
@@ -35,6 +35,17 @@ export function InventoryPage() {
     [],
     { cacheKey: `ref:branches:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
   );
+
+  // Strict branch scope for everyone below Super Admin (mirrors
+  // my_branch_ids() in the database); RLS enforces the same rule.
+  const accessibleBranchIds = useMemo(() => {
+    if (hasRole(user, 'super_admin')) return [] as string[];
+    const ids = new Set<string>();
+    if (user?.branch_id) ids.add(user.branch_id);
+    for (const id of user?.branch_assignment_ids ?? []) if (id) ids.add(id);
+    return [...ids];
+  }, [user]);
+  const branchScoped = !hasRole(user, 'super_admin') && accessibleBranchIds.length > 0;
 
   const { data: products } = useSupabaseQuery<Product[]>(
     () => supabase.from('products').select('id,business_id,name,sku,unit').eq('is_active', true).order('name'),
@@ -64,11 +75,11 @@ export function InventoryPage() {
       .select(`*, product:products(id,name,sku,unit), branch:branches(id,name)`, { count: 'exact' })
       .order('updated_at', { ascending: false })
       .range(from, to);
-    if (!isBusinessLevel && user?.branch_id) q = q.eq('branch_id', user.branch_id);
+    if (branchScoped) q = q.in('branch_id', accessibleBranchIds);
     if (filterBranch !== 'all') q = q.eq('branch_id', filterBranch);
     if (matchedProductIds) q = q.in('product_id', matchedProductIds);
     return q;
-  }, [noProductMatches, isBusinessLevel, user, filterBranch, matchedProductIds, page, pageSize]);
+  }, [noProductMatches, branchScoped, accessibleBranchIds, filterBranch, matchedProductIds, page, pageSize]);
 
   const { data: balances, loading: loadingBalances, error: errorBalances, count: countBalances, refetch: refetchBalances } =
     useSupabaseQuery<InventoryBalance[]>(
@@ -86,11 +97,11 @@ export function InventoryPage() {
       .select(`*, product:products(id,name,sku), branch:branches(id,name), actor:user_profiles!actor_id(full_name)`, { count: 'exact' })
       .order('transaction_date', { ascending: false })
       .range(from, to);
-    if (!isBusinessLevel && user?.branch_id) q = q.eq('branch_id', user.branch_id);
+    if (branchScoped) q = q.in('branch_id', accessibleBranchIds);
     if (filterBranch !== 'all') q = q.eq('branch_id', filterBranch);
     if (matchedProductIds) q = q.in('product_id', matchedProductIds);
     return q;
-  }, [noProductMatches, isBusinessLevel, user, filterBranch, matchedProductIds, page, pageSize]);
+  }, [noProductMatches, branchScoped, accessibleBranchIds, filterBranch, matchedProductIds, page, pageSize]);
 
   const { data: transactions, loading: loadingTxns, error: errorTxns, count: countTxns, refetch: refetchTxns } =
     useSupabaseQuery<InventoryTransaction[]>(
@@ -117,11 +128,11 @@ export function InventoryPage() {
     const from = (page - 1) * pageSize;
     const to = page * pageSize - 1;
     let q = supabase.from('inventory_assets').select(`*, branch:branches(id,name), custodian:user_profiles!custodian_id(full_name)`, { count: 'exact' }).order('updated_at', { ascending: false }).range(from, to);
-    if (!isBusinessLevel && user?.branch_id) q = q.eq('branch_id', user.branch_id);
+    if (branchScoped) q = q.in('branch_id', accessibleBranchIds);
     if (filterBranch !== 'all') q = q.eq('branch_id', filterBranch);
     if (needle) q = q.or(`name.ilike.%${needle}%,asset_code.ilike.%${needle}%,serial_number.ilike.%${needle}%,asset_type.ilike.%${needle}%`);
     return q;
-  }, [isBusinessLevel, user, filterBranch, needle, page, pageSize]);
+  }, [branchScoped, accessibleBranchIds, filterBranch, needle, page, pageSize]);
   const { data: assets, loading: loadingAssets, error: errorAssets, count: countAssets, refetch: refetchAssets } = useSupabaseQuery<InventoryAsset[]>(() => assetsQuery, [assetsQuery], { cacheKey: `inv:assets:${user?.id ?? 'anon'}:${user?.branch_id ?? '-'}:${filterBranch}:${page}:${search.trim().toLowerCase()}` });
   const filteredAssets = useMemo(() => {
     if (!assets) return [];
@@ -590,7 +601,9 @@ function MovementModal({
     });
 
     if (txnError) {
-      setError('Could not record the movement.');
+      // Surface the RPC's reason (branch scope, product/branch mismatch,
+      // negative stock, missing permission) — it is written for end users.
+      setError(`Could not record the movement: ${txnError.message}`);
       setSaving(false);
       return;
     }

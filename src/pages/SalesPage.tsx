@@ -25,34 +25,27 @@ export function SalesPage() {
   const [viewSaleId, setViewSaleId] = useState<string | null>(null);
   const canViewDetails = isAtLeast(user, 'manager');
   const isExecutive = hasRole(user, 'super_admin');
-  const businessLevel = isAtLeast(user, 'admin');
   const [page, setPage] = useState(1);
   const pageSize = 10;
   useEffect(() => { setPage(1); }, [search, status]);
-  const { data: myBusinessAssignments } = useSupabaseQuery<Array<{ business_id: string }>>(
-    user?.id ? () => supabase.from('user_business_assignments').select('business_id').eq('user_id', user?.id ?? '') : null,
-    [user?.id],
-    { cacheKey: `assign:biz:${user?.id ?? 'anon'}`, ttlMs: 60_000 },
-  );
-  const accessibleBusinessIds = useMemo(() => {
-    if (isExecutive || !businessLevel) return null;
+  // Strict branch scope for everyone below Super Admin (mirrors
+  // my_branch_ids() in the database); daily_sales RLS enforces the same rule.
+  const accessibleBranchIds = useMemo(() => {
+    if (isExecutive) return [] as string[];
     const set = new Set<string>();
-    if (user?.business_id) set.add(user.business_id);
-    for (const a of myBusinessAssignments ?? []) if (a.business_id) set.add(a.business_id);
+    if (user?.branch_id) set.add(user.branch_id);
+    for (const id of user?.branch_assignment_ids ?? []) if (id) set.add(id);
     return [...set];
-  }, [isExecutive, businessLevel, user?.business_id, myBusinessAssignments]);
+  }, [isExecutive, user]);
+  const branchScoped = !isExecutive && accessibleBranchIds.length > 0;
   const { downloadReceipt, printReceipt } = useReceiptPDF();
   const { data: branches } = useSupabaseQuery<Branch[]>(() => supabase.from('branches').select('*').eq('is_active', true).order('name'), [], { cacheKey: `sales-branches:${user?.id}`, ttlMs: 60_000 });
   const { data: sales, loading, error, refetch } = useSupabaseQuery<DailySale[]>(() => {
     let query = supabase.from('daily_sales').select('*, product:products(id,name), items:sale_items(id,quantity,unit_price,discount_value,product:products(id,name)), branch:branches(id,name)', { count: 'exact' }).order('created_at', { ascending: false }).limit(100);
-    if (!isExecutive && businessLevel) {
-      if (accessibleBusinessIds && accessibleBusinessIds.length > 0) query = query.in('business_id', accessibleBusinessIds);
-      else if (user?.business_id) query = query.eq('business_id', user.business_id);
-    }
-    if (!businessLevel && user?.branch_id) query = query.eq('branch_id', user.branch_id);
+    if (branchScoped) query = query.in('branch_id', accessibleBranchIds);
     if (status !== 'all') query = query.eq('status', status);
     return query;
-  }, [user?.id, user?.business_id, user?.branch_id, isExecutive, businessLevel, status, accessibleBusinessIds], { cacheKey: `sales:${user?.id}:${status}:${(accessibleBusinessIds ?? []).join(',')}` });
+  }, [user?.id, user?.branch_id, isExecutive, status, branchScoped, accessibleBranchIds], { cacheKey: `sales:${user?.id}:${status}:${accessibleBranchIds.join(',')}` });
   const filtered = useMemo(() => (sales ?? []).filter((sale) => {
     const query = search.trim().toLowerCase();
     if (!query) return true;
@@ -124,7 +117,6 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
 
   const branch = branches.find((candidate) => candidate.id === branchId) ?? null;
   const branchKey = branch?.id ?? '';
-  const branchBusinessId = branch?.business_id ?? '';
 
   useEffect(() => {
     if (!canChooseBranch && currentUser?.branch_id && !branchId) setBranchId(currentUser.branch_id);
@@ -137,10 +129,12 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
   useEffect(() => {
     if (!branchKey) { setProducts([]); setStockByProduct({}); return; }
     setLoadingProducts(true);
+    // Branch-scoped products: a sale can only contain what THIS branch stocks
+    // (create_sale_with_items enforces the same rule server-side).
     supabase
       .from('products')
       .select('*')
-      .eq('business_id', branchBusinessId)
+      .eq('branch_id', branchKey)
       .eq('is_active', true)
       .order('name')
       .then(({ data }) => {
@@ -169,7 +163,7 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
         }
         setProductUnits(map);
       });
-  }, [branchKey, branchBusinessId]);
+  }, [branchKey]);
 
   const [hideOutOfStock, setHideOutOfStock] = useState(false);
 

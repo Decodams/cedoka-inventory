@@ -117,10 +117,11 @@ export function accessibleBranchIds(user: UserProfile | null): string[] {
 }
 
 // CHECK IF ACTOR CAN ACCESS BRANCH
+// Strict scope: Super Admin is global, everyone else only reaches their
+// primary branch plus explicit assignments (mirrors can_access_branch()).
 export function canAccessBranch(user: UserProfile | null, branchId: string): boolean {
   if (!user) return false;
   if (hasRole(user, 'super_admin')) return true;
-  if (hasRole(user, 'admin')) return true; // admin can access all branches in their businesses
   return accessibleBranchIds(user).includes(branchId);
 }
 
@@ -147,9 +148,11 @@ export function canManageBusinesses(actor: UserProfile | null): boolean {
   return hasRole(actor, 'super_admin');
 }
 
-// CHECK IF ACTOR CAN MANAGE BRANCHES
+// CHECK IF ACTOR CAN MANAGE (CREATE/EDIT) BRANCH RECORDS
+// The branch registry is Super Admin's org structure (spec sections 4, 5);
+// Admins manage operations inside their branch, they do not reshape it.
 export function canManageBranches(actor: UserProfile | null): boolean {
-  return isAtLeast(actor, 'admin');
+  return hasRole(actor, 'super_admin');
 }
 
 // CHECK IF ACTOR CAN REVIEW REPORTS

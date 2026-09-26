@@ -45,7 +45,7 @@ Deno.serve(async (request) => {
   if (!actor?.is_active || !actorRole || !(actorRole in ROLE_RANK)) return reply({ error: 'Not authorized' }, 403);
 
   const { data: target, error: targetError } = await admin.from('user_profiles')
-    .select('id, email, role:roles(name), business_id').eq('id', targetUserId).maybeSingle();
+    .select('id, email, role:roles(name), business_id, branch_id').eq('id', targetUserId).maybeSingle();
   if (targetError) return reply({ error: targetError.message }, 500);
   if (!target) return reply({ error: 'User not found' }, 404);
 
@@ -61,16 +61,33 @@ Deno.serve(async (request) => {
   const targetRank = ROLE_RANK[targetRole ?? ''] ?? -1;
   if (actorRank <= targetRank) return reply({ error: 'You cannot delete a user at or above your rank' }, 403);
 
-  // Business scope enforcement for admins
-  if (actorRole === 'admin') {
-    const actorBiz = (actor as { business_id?: string | null }).business_id ?? null;
-    if (target.business_id && actorBiz && target.business_id !== actorBiz) return reply({ error: 'Admins can only delete users within their own business' }, 403);
-  }
-
-  // Branch scope enforcement for managers
-  if (actorRole === 'manager') {
+  if (actorRole === 'admin' || actorRole === 'manager') {
+    // Service role bypasses RLS, so scope is validated here: the target must
+    // sit inside the actor's own branch scope (spec sections 6, 20).
+    const accessibleBranches = new Set<string>();
+    const accessibleBusinesses = new Set<string>();
     const actorBranch = (actor as { branch_id?: string | null }).branch_id ?? null;
-    if (target.branch_id && actorBranch && target.branch_id !== actorBranch) return reply({ error: 'Managers can only delete users within their own branch' }, 403);
+    const actorBusiness = (actor as { business_id?: string | null }).business_id ?? null;
+    if (actorBranch) accessibleBranches.add(actorBranch);
+    if (actorBusiness) accessibleBusinesses.add(actorBusiness);
+    const [{ data: branchAssignments }, { data: managedBranches }, { data: businessAssignments }] = await Promise.all([
+      admin.from('user_branch_assignments').select('branch_id').eq('user_id', caller.id),
+      admin.from('branches').select('id, business_id').eq('manager_id', caller.id),
+      admin.from('user_business_assignments').select('business_id').eq('user_id', caller.id),
+    ]);
+    (branchAssignments ?? []).forEach((row) => accessibleBranches.add(row.branch_id));
+    (managedBranches ?? []).forEach((row) => { accessibleBranches.add(row.id); accessibleBusinesses.add(row.business_id); });
+    (businessAssignments ?? []).forEach((row) => accessibleBusinesses.add(row.business_id));
+    const targetBranch = (target as { branch_id?: string | null }).branch_id ?? null;
+    const targetBusiness = (target as { business_id?: string | null }).business_id ?? null;
+    const inScope = targetBranch
+      ? accessibleBranches.has(targetBranch)
+      : Boolean(targetBusiness && accessibleBusinesses.has(targetBusiness));
+    if (!inScope) {
+      return reply({ error: actorRole === 'admin'
+        ? 'Admins can only delete users within their own branch scope'
+        : 'Managers can only delete users within their own branch' }, 403);
+    }
   }
 
   // Clear references that would otherwise block the delete (manager links and
@@ -95,6 +112,7 @@ Deno.serve(async (request) => {
     target_table: 'user_profiles',
     target_id: targetUserId,
     metadata: { email: (target as { email?: string }).email },
+    branch_id: (target as { branch_id?: string | null }).branch_id ?? null,
   });
 
   return reply({ success: true });

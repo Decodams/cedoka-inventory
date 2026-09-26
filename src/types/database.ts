@@ -171,6 +171,7 @@ export type ProductType = 'simple' | 'serialized' | 'batch';
 export interface Product {
   id: string;
   business_id: string;
+  branch_id: string;
   category_id: string | null;
   supplier_id: string | null;
   name: string;
@@ -191,6 +192,7 @@ export interface Product {
   category?: Category;
   supplier?: Supplier;
   business?: Business;
+  branch?: Branch;
 }
 
 export interface InventoryBalance {
