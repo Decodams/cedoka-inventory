@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   ClipboardList,
   Plus,
@@ -10,10 +10,11 @@ import {
   Package,
   FileText,
   History,
+  Flag,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSupabaseQuery, supabase } from '@/hooks/useSupabaseQuery';
-import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States';
+import { ErrorState, EmptyState, ListSkeleton } from '@/components/ui/States';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { Input, Select, Textarea } from '@/components/ui/Form';
@@ -31,8 +32,21 @@ import {
   getWeekEnd,
   toDateString,
 } from '@/lib/dateUtils';
-import { isAtLeast, hasRole } from '@/lib/rbac';
-import type { WeeklyReport, Business, Branch, ReportAmendment } from '@/types/database';
+import { isAtLeast, hasRole, accessibleBusinessIds, fullAccessibleBranchIds } from '@/lib/rbac';
+import { sanitizeMultiline } from '@/lib/sanitize';
+import type { WeeklyReport, Business, Branch, ReportAmendment, UserProfile, ReportPriority } from '@/types/database';
+
+const REPORT_PRIORITY_LABELS: Record<ReportPriority, string> = {
+  normal: 'Normal',
+  priority: 'Priority',
+  urgent: 'Urgent',
+};
+
+const REPORT_PRIORITY_STYLES: Record<ReportPriority, string> = {
+  normal: 'bg-slate-100 text-slate-600 border-slate-200',
+  priority: 'bg-amber-100 text-amber-700 border-amber-200',
+  urgent: 'bg-rose-100 text-rose-700 border-rose-200',
+};
 
 export function WeeklyReportsPage() {
   const { user } = useAuth();
@@ -67,26 +81,31 @@ export function WeeklyReportsPage() {
       .order('week_end_date', { ascending: false })
       .order('created_at', { ascending: false });
 
-    // Filter by user's own data + reportees if manager or above
     if (isExecutive) {
       // see all
-    } else if (isBusinessLevel && user?.business_id) {
-      q = q.eq('business_id', user.business_id);
-      // TODO: add reportees filter when manager_id is populated
+    } else {
+      // Everyone below Super Admin only lists reports from their own scope:
+      // primary business + explicit assignments, and branches my_branch_ids()
+      // returns (assignments, managed, and business oversight for Admins).
+      const bizIds = accessibleBusinessIds(user);
+      if (bizIds.length === 1) q = q.eq('business_id', bizIds[0]);
+      else if (bizIds.length > 1) q = q.in('business_id', bizIds);
+      const branchIds = fullAccessibleBranchIds(user);
+      if (branchIds.length > 0) q = q.in('branch_id', branchIds);
     }
 
     if (filterBusiness !== 'all') q = q.eq('business_id', filterBusiness);
     if (filterStatus !== 'all') q = q.eq('status', filterStatus);
 
     return q.limit(50);
-  }, [isExecutive, isBusinessLevel, user, filterBusiness, filterStatus]);
+  }, [isExecutive, user, filterBusiness, filterStatus]);
 
   const { data: reports, loading, error, refetch } = useSupabaseQuery<WeeklyReport[]>(
     () => reportsQuery,
     [reportsQuery],
   );
 
-  if (loading) return <LoadingState />;
+  if (loading) return <ListSkeleton rows={5} />;
   if (error) return <ErrorState message="Could not load weekly reports." onRetry={refetch} />;
 
   if (viewMode === 'detail' && selectedReport) {
@@ -160,6 +179,16 @@ export function WeeklyReportsPage() {
 <Badge className={REPORT_STATUS_STYLES[report.status]}>
                     {REPORT_STATUS_LABELS[report.status]}
                   </Badge>
+                  {report.priority !== 'normal' && (
+                    <Badge className={REPORT_PRIORITY_STYLES[report.priority]}>
+                      {REPORT_PRIORITY_LABELS[report.priority]}
+                    </Badge>
+                  )}
+                  {report.escalated && (
+                    <Badge className="bg-rose-100 text-rose-700 border-rose-200">
+                      <Flag size={10} /> Escalated
+                    </Badge>
+                  )}
                   {report.status === 'submitted' && (
                     <Badge
                       className="bg-gray-100 text-gray-500 border-gray-200 text-xs"
@@ -236,24 +265,43 @@ function ReportFormModal({
   report: WeeklyReport | null;
   businesses: Business[];
   branches: Branch[];
-  currentUser: { id: string; business_id: string | null; branch_id: string | null; role?: { name: string } } | null;
+  currentUser: UserProfile | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const isExecutive = currentUser?.role?.name === 'super_admin';
-  const isBusinessLevel = currentUser?.role?.name === 'admin';
 
-  const availableBusinesses = isExecutive ? businesses : businesses.filter((b) => b.id === currentUser?.business_id);
-  const availableBranches = isExecutive
-    ? branches
-    : isBusinessLevel
-      ? branches
-      : branches.filter((b) => b.id === currentUser?.branch_id);
+  // A reporter can open a report for EVERY business/branch assigned to them
+  // (spec 2 & 13): the Business select cascades into a Branch select that only
+  // lists branches of the chosen business the user can actually reach.
+  const accessibleBizIds = useMemo(() => accessibleBusinessIds(currentUser), [currentUser]);
+  const userBranchScope = useMemo(() => fullAccessibleBranchIds(currentUser), [currentUser]);
+  const availableBusinesses = isExecutive ? businesses : businesses.filter((b) => accessibleBizIds.includes(b.id));
 
-  const [businessId, setBusinessId] = useState(report?.business_id ?? currentUser?.business_id ?? '');
+  const [businessId, setBusinessId] = useState(
+    report?.business_id ?? (accessibleBizIds.length === 1 ? accessibleBizIds[0] : currentUser?.business_id ?? ''),
+  );
   const [branchId, setBranchId] = useState(report?.branch_id ?? currentUser?.branch_id ?? '');
+
+  const availableBranches = useMemo(() => {
+    const scoped = isExecutive ? branches : branches.filter((b) => userBranchScope.includes(b.id));
+    return businessId ? scoped.filter((b) => b.business_id === businessId) : scoped;
+  }, [isExecutive, branches, userBranchScope, businessId]);
+
   const weekEnd = toDateString(getWeekEnd(new Date()));
   const [weekEndDate, setWeekEndDate] = useState(report?.week_end_date ?? weekEnd);
+  const [priority, setPriority] = useState<ReportPriority>(report?.priority ?? 'normal');
+
+  // Auto-select: a user with a single business/branch should never have to
+  // pick either (spec 2).
+  useEffect(() => {
+    if (report) return;
+    if (!businessId && availableBusinesses.length === 1) setBusinessId(availableBusinesses[0].id);
+  }, [report, businessId, availableBusinesses]);
+  useEffect(() => {
+    if (report) return;
+    if (!branchId && availableBranches.length === 1) setBranchId(availableBranches[0].id);
+  }, [report, branchId, availableBranches]);
 
   const [openingStock, setOpeningStock] = useState(report?.opening_stock?.toString() ?? '0');
   const [stockReceived, setStockReceived] = useState(report?.stock_received?.toString() ?? '0');
@@ -316,6 +364,7 @@ function ReportFormModal({
       branch_id: branchId,
       week_start_date: ws,
       week_end_date: weekEndDate,
+      priority,
       opening_stock: Number(openingStock || 0),
       stock_received: Number(stockReceived || 0),
       stock_sold: Number(stockSold || 0),
@@ -327,10 +376,10 @@ function ReportFormModal({
       pending_sales_value: Number(pendingSalesValue || 0),
       pending_purchase_value: Number(pendingPurchaseValue || 0),
       pending_procurement_value: Number(pendingProcurementValue || 0),
-      activities_notes: activitiesNotes,
-      challenges_notes: challengesNotes,
-      issues_notes: issuesNotes,
-      improvement_notes: improvementNotes,
+      activities_notes: sanitizeMultiline(activitiesNotes),
+      challenges_notes: sanitizeMultiline(challengesNotes),
+      issues_notes: sanitizeMultiline(issuesNotes),
+      improvement_notes: sanitizeMultiline(improvementNotes),
       status: submit ? 'submitted' : (report?.status ?? 'draft'),
       submitted_by: submit ? currentUser?.id : (report?.submitted_by ?? null),
       submitted_at: submit ? new Date().toISOString() : (report?.submitted_at ?? null),
@@ -364,18 +413,29 @@ function ReportFormModal({
   return (
     <Modal open onClose={onClose} title={report ? 'Edit Weekly Report' : 'New Weekly Report'} size="xl">
       <div className="space-y-6">
-        {/* Header: Business, Branch, Week */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {/* Header: Business, Branch, Week, Priority */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <Select label="Business Unit" value={businessId} onChange={(e) => { setBusinessId(e.target.value); setBranchId(''); }} disabled={!!report}>
             <option value="">Select...</option>
             {availableBusinesses.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </Select>
           <Select label="Branch" value={branchId} onChange={(e) => { setBranchId(e.target.value); if (e.target.value) deriveOpening(e.target.value, weekEndDate); }} disabled={!!report}>
             <option value="">Select...</option>
-            {availableBranches.filter((b) => !businessId || b.business_id === businessId).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            {availableBranches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </Select>
           <Input label="Week Ending (Saturday)" type="date" value={weekEndDate} onChange={(e) => { setWeekEndDate(e.target.value); if (branchId) deriveOpening(branchId, e.target.value); }} disabled={!!report} />
+          <Select label="Priority" value={priority} onChange={(e) => setPriority(e.target.value as ReportPriority)}>
+            <option value="normal">Normal</option>
+            <option value="priority">Priority</option>
+            <option value="urgent">Urgent</option>
+          </Select>
         </div>
+        {!report && priority !== 'normal' && (
+          <p className="text-xs text-slate-500 flex items-center gap-1.5">
+            <AlertTriangle size={12} className="text-amber-500" />
+            Submitting this report as {REPORT_PRIORITY_LABELS[priority]} will immediately notify the branch manager and business leadership above it.
+          </p>
+        )}
 
         {/* Stock Position */}
         <div>
@@ -490,6 +550,8 @@ function ReportDetailView({
   const [amendReason, setAmendReason] = useState('');
   const [reviewNotes, setReviewNotes] = useState(report.review_notes ?? '');
   const [saving, setSaving] = useState(false);
+  const [escalated, setEscalated] = useState(report.escalated ?? false);
+  const [escalatedAt, setEscalatedAt] = useState(report.escalated_at ?? null);
 
   const { data: amendments } = useSupabaseQuery<ReportAmendment[]>(
     () =>
@@ -504,9 +566,27 @@ function ReportDetailView({
   const canEdit = report.status === 'draft' || isAtLeast(user, 'admin');
   const canReview = isAtLeast(user, 'admin') && report.status === 'submitted';
   const canAmend = isAtLeast(user, 'admin') && (report.status === 'submitted' || report.status === 'reviewed');
+  const canEscalate = !escalated && isAtLeast(user, 'admin');
 
   const expectedClosing = report.opening_stock + report.stock_received - report.stock_sold - report.stock_damaged;
   const variance = report.closing_stock - expectedClosing;
+
+  const handleEscalate = async () => {
+    setSaving(true);
+    const { error } = await supabase
+      .from('weekly_reports')
+      .update({
+        escalated: true,
+        escalated_at: new Date().toISOString(),
+        escalated_by: user?.id,
+      })
+      .eq('id', report.id);
+    setSaving(false);
+    if (error) return;
+    setEscalated(true);
+    setEscalatedAt(new Date().toISOString());
+    onRefresh();
+  };
 
   const handleReview = async (approve: boolean) => {
     setSaving(true);
@@ -583,6 +663,16 @@ function ReportDetailView({
               <Badge className={REPORT_STATUS_STYLES[report.status]}>
                 {REPORT_STATUS_LABELS[report.status]}
               </Badge>
+              {report.priority !== 'normal' && (
+                <Badge className={REPORT_PRIORITY_STYLES[report.priority]}>
+                  {REPORT_PRIORITY_LABELS[report.priority]}
+                </Badge>
+              )}
+              {escalated && (
+                <Badge className="bg-rose-100 text-rose-700 border-rose-200">
+                  <Flag size={10} /> Escalated
+                </Badge>
+              )}
             </div>
             <p className="text-sm text-slate-500">
               {report.business?.name} · {weekRangeString(report.week_start_date, report.week_end_date)}
@@ -593,12 +683,22 @@ function ReportDetailView({
                 {report.submitted_at && ` on ${formatDate(report.submitted_at)}`}
               </p>
             )}
+            {escalated && escalatedAt && (
+              <p className="text-xs text-rose-500 mt-1">Escalated on {formatDate(escalatedAt)}</p>
+            )}
           </div>
-          {canEdit && (
-            <Button variant="outline" size="sm" onClick={onEdit}>
-              <Pencil size={14} /> Edit
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            {canEscalate && (
+              <Button variant="outline" size="sm" className="text-rose-600 border-rose-200 hover:bg-rose-50" onClick={handleEscalate} disabled={saving}>
+                <Flag size={14} /> Escalate
+              </Button>
+            )}
+            {canEdit && (
+              <Button variant="outline" size="sm" onClick={onEdit}>
+                <Pencil size={14} /> Edit
+              </Button>
+            )}
+          </div>
         </div>
       </div>
 

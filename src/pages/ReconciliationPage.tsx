@@ -422,7 +422,7 @@ function PeriodDetailView({ period, onBack, onRefresh }: { period: InventoryPeri
               <div key={v.id} className="flex items-center justify-between border border-slate-100 rounded-xl px-4 py-3">
                 <div>
                   <p className="text-sm font-medium text-slate-900">{(v.product as unknown as Product)?.name} · <span className={`font-bold ${v.variance_quantity<0?'text-rose-600':'text-emerald-600'}`}>{v.variance_quantity>0?'+':''}{formatNumber(v.variance_quantity)}</span></p>
-                  <p className="text-xs text-slate-400">{v.possible_reason ?? v.explanation ?? 'No reason recorded'}{v.requires_management_attention && ' · ⚠ Requires Management Attention'}</p>
+                  <p className="text-xs text-slate-400">{v.possible_reason ?? v.explanation ?? 'No reason recorded'}{v.requires_management_attention && ' · Requires Management Attention'}</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <Badge className={VARIANCE_STATUS_STYLES[v.approval_status]}>{v.approval_status}</Badge>

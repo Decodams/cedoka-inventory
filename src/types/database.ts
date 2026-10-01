@@ -291,12 +291,18 @@ export interface InventoryAssetMovement {
   created_at: string;
 }
 
+export type ReportPriority = 'normal' | 'priority' | 'urgent';
+
 export interface WeeklyReport {
   id: string;
   business_id: string;
   branch_id: string;
   week_start_date: string;
   week_end_date: string;
+  priority: ReportPriority;
+  escalated: boolean;
+  escalated_at: string | null;
+  escalated_by: string | null;
   opening_stock: number;
   stock_received: number;
   stock_sold: number;
@@ -618,6 +624,20 @@ export interface SaleSerialNumber {
   product_id: string;
   serial_number_id: string | null;
   serial_number: string;
+  created_at: string;
+}
+
+export type NotificationType = 'report_priority' | 'report_escalation';
+
+export interface AppNotification {
+  id: string;
+  user_id: string;
+  title: string;
+  body: string;
+  type: NotificationType;
+  ref_type: string;
+  ref_id: string | null;
+  read_at: string | null;
   created_at: string;
 }
 

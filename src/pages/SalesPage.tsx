@@ -2,17 +2,18 @@
 import { DollarSign, Plus, Minus, Receipt, Search, Trash2, Check, Printer } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { supabase, useSupabaseQuery } from '@/hooks/useSupabaseQuery';
-import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States';
+import { ErrorState, EmptyState, ListSkeleton } from '@/components/ui/States';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { Input, Select, Textarea } from '@/components/ui/Form';
 import { Badge } from '@/components/ui/Badge';
 import { formatCurrency, formatDate } from '@/lib/dateUtils';
-import { hasRole, isAtLeast } from '@/lib/rbac';
+import { hasRole, isAtLeast, fullAccessibleBranchIds } from '@/lib/rbac';
 import { formatUnitQuantity } from '@/lib/business';
 import { SALE_STATUS_LABELS, SALE_STATUS_STYLES } from '@/lib/statusStyles';
 import { useReceiptPDF } from '@/components/ReceiptPDF';
 import { SaleDetailModal } from '@/components/SaleDetailModal';
+import { sanitizeText, sanitizeMultiline } from '@/lib/sanitize';
 import logoUrl from '@/logo.jpeg';
 import type { Branch, DailySale, Product, ProductSerialNumber, SaleItem, UserProfile } from '@/types/database';
 
@@ -55,7 +56,7 @@ export function SalesPage() {
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const completed = filtered.filter((sale) => sale.status === 'completed').reduce((sum, sale) => sum + Number(sale.unit_price) * sale.quantity - Number(sale.discount_value), 0);
-  if (loading) return <LoadingState />;
+  if (loading) return <ListSkeleton rows={6} />;
   if (error) return <ErrorState message="Could not load sales." onRetry={refetch} />;
   return <div className="space-y-6">
     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -87,7 +88,14 @@ type CartItem = Omit<SaleItem, 'id' | 'sale_id' | 'created_at'> & { product: Pro
 
 function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Branch[]; currentUser: UserProfile | null; onClose: () => void; onSaved: () => void }) {
   const { downloadReceipt, printReceipt } = useReceiptPDF();
-  const canChooseBranch = currentUser?.role?.name === 'admin' || currentUser?.role?.name === 'super_admin';
+  const isExecutive = currentUser?.role?.name === 'super_admin';
+  // Any role (including a sales_person) can be assigned to several branches.
+  // The picker offers every branch in the user's server-computed scope
+  // (my_branch_ids) and auto-selects when there is exactly one; Super Admin
+  // still sees every branch. create_sale_with_items enforces the same scope.
+  const userBranchIds = useMemo(() => fullAccessibleBranchIds(currentUser), [currentUser]);
+  const branchOptions = isExecutive ? branches : branches.filter((candidate) => userBranchIds.includes(candidate.id));
+  const canChooseBranch = isExecutive || userBranchIds.length > 1;
   const [branchId, setBranchId] = useState(currentUser?.branch_id ?? '');
   const [products, setProducts] = useState<Product[]>([]);
   const [stockByProduct, setStockByProduct] = useState<Record<string, number>>({});
@@ -120,12 +128,19 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
   const branchKey = branch?.id ?? '';
 
   useEffect(() => {
-    if (!canChooseBranch && currentUser?.branch_id && !branchId) setBranchId(currentUser.branch_id);
-  }, [canChooseBranch, currentUser?.branch_id, branchId]);
+    if (branchId || branchOptions.length === 0) return;
+    const preferred = currentUser?.branch_id ?? '';
+    if (preferred && branchOptions.some((candidate) => candidate.id === preferred)) {
+      setBranchId(preferred);
+      return;
+    }
+    if (branchOptions.length === 1) setBranchId(branchOptions[0].id);
+  }, [branchId, branchOptions, currentUser?.branch_id]);
 
   useEffect(() => {
-    if (!branchId && branches.length === 1) setBranchId(branches[0].id);
-  }, [branches, branchId]);
+    if (!branchId || branchOptions.length === 0) return;
+    if (!branchOptions.some((candidate) => candidate.id === branchId)) setBranchId('');
+  }, [branchId, branchOptions]);
 
   useEffect(() => {
     if (!branchKey) { setProducts([]); setStockByProduct({}); return; }
@@ -315,7 +330,7 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
     if (!branchId) { setError('Select a branch first.'); return; }
     if (!items.length) { setError('Add at least one item to the sale.'); return; }
     // Ensure the sale customer appears in the Customers list.
-    const saleCustomer = customerName.trim();
+    const saleCustomer = sanitizeText(customerName);
     if (saleCustomer && saleCustomer.toLowerCase() !== 'walk-in') {
       const branch = branches.find((candidate) => candidate.id === branchId);
       const bizId = branch?.business_id ?? null;
@@ -330,10 +345,10 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
     setError(null);
     const { data: saleId, error: rpcError } = await supabase.rpc('create_sale_with_items', {
       p_branch_id: branchId,
-      p_customer_name: customerName.trim() || null,
+      p_customer_name: saleCustomer || null,
       p_payment_method: paymentMethod,
       p_amount_paid: paid,
-      p_notes: notes.trim() || null,
+      p_notes: sanitizeMultiline(notes) || null,
       p_items: items.map((item) => ({ product_id: item.product_id, quantity: item.quantity, unit_price: item.unit_price, discount_value: item.discount_value, unit: item.unit ?? item.product.unit ?? null, serial_number: item.serial_number ?? null, serial_numbers: item.serial_numbers ?? [] })),
     });
     setSaving(false);
@@ -394,7 +409,7 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
         <div className="grid gap-4 sm:grid-cols-2">
           <Select label="Branch" value={branchId} disabled={!canChooseBranch} onChange={(event) => { setBranchId(event.target.value); setItems([]); }}>
             <option value="">Select branch...</option>
-            {(canChooseBranch ? branches : branches.filter((candidate) => candidate.id === branchId)).map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}
+            {branchOptions.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}
           </Select>
           <Input label="Customer" value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Walk-in customer" />
         </div>

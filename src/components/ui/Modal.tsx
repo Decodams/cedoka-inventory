@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect } from 'react';
+import { type ReactNode, useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 
 interface ModalProps {
@@ -17,6 +17,8 @@ const sizeClasses = {
 };
 
 export function Modal({ open, onClose, title, children, size = 'md' }: ModalProps) {
+  const panel = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;
@@ -28,6 +30,20 @@ export function Modal({ open, onClose, title, children, size = 'md' }: ModalProp
       document.removeEventListener('keydown', onKey);
     };
   }, [open, onClose]);
+
+  useEffect(() => {
+    if (!open) return;
+    // Scroll the focused field into view when the soft keyboard opens
+    // (spec 4: keyboard-safe forms on small screens).
+    const onFocus = () => {
+      const target = document.activeElement as HTMLElement | null;
+      if (target && panel.current?.contains(target)) {
+        setTimeout(() => target.scrollIntoView({ block: 'center', behavior: 'auto' }), 220);
+      }
+    };
+    document.addEventListener('focusin', onFocus);
+    return () => document.removeEventListener('focusin', onFocus);
+  }, [open]);
 
   if (!open) return null;
 
@@ -41,7 +57,8 @@ export function Modal({ open, onClose, title, children, size = 'md' }: ModalProp
         aria-hidden="true"
       />
       <div
-        className={`relative bg-white rounded-2xl shadow-2xl w-full ${sizeClasses[size]} max-h-[92vh] sm:max-h-[90vh] flex flex-col overflow-hidden`}
+        ref={panel}
+        className={`relative bg-white rounded-2xl shadow-2xl w-full ${sizeClasses[size]} max-h-[92dvh] sm:max-h-[90dvh] flex flex-col overflow-hidden`}
       >
         <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-100 shrink-0">
           <h2 className="text-base sm:text-lg font-semibold text-slate-900 pr-4 leading-tight">{title}</h2>
@@ -53,7 +70,7 @@ export function Modal({ open, onClose, title, children, size = 'md' }: ModalProp
             <X size={20} />
           </button>
         </div>
-        <div className="overflow-y-auto px-4 sm:px-6 py-4 flex-1 min-h-0">{children}</div>
+        <div className="overflow-y-auto px-4 sm:px-6 py-4 flex-1 min-h-0 safe-bottom">{children}</div>
       </div>
     </div>
   );

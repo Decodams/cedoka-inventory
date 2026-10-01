@@ -56,3 +56,34 @@ export function LoadingState({ message = 'Loading...' }: { message?: string }) {
     </div>
   );
 }
+
+/** Skeleton placeholder (spec 11): shimmering blocks stand in for content. */
+export function Skeleton({ className = '' }: { className?: string }) {
+  return (
+    <div className={`animate-pulse rounded-lg bg-slate-200/70 ${className}`} aria-hidden="true" />
+  );
+}
+
+/** A list-shaped skeleton used on the main pages while data is loading. */
+export function ListSkeleton({ rows = 4, showHeader = true }: { rows?: number; showHeader?: boolean }) {
+  return (
+    <div className="space-y-3" role="status" aria-label="Loading">
+      {showHeader && (
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-6 w-48" />
+          <Skeleton className="h-9 w-32" />
+        </div>
+      )}
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="bg-white rounded-2xl border border-slate-200 p-5 space-y-2">
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-5 w-20" />
+          </div>
+          <Skeleton className="h-3 w-64 max-w-full" />
+          <Skeleton className="h-3 w-48 max-w-full" />
+        </div>
+      ))}
+    </div>
+  );
+}

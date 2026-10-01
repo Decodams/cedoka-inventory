@@ -116,6 +116,21 @@ export function accessibleBranchIds(user: UserProfile | null): string[] {
   return [...ids];
 }
 
+/**
+ * Every branch the user can reach in the app: primary branch, explicit
+ * assignments, managed branches, and business oversight branches. Built from
+ * the server-computed `accessible_branch_ids` (my_branch_ids()) plus the
+ * user's own profile fields, so it is authoritative for pickers and lists.
+ */
+export function fullAccessibleBranchIds(user: UserProfile | null): string[] {
+  if (!user) return [];
+  const ids = new Set<string>();
+  if (user.accessible_branch_ids) for (const id of user.accessible_branch_ids) if (id) ids.add(id);
+  if (user.branch_id) ids.add(user.branch_id);
+  for (const id of user.branch_assignment_ids ?? []) if (id) ids.add(id);
+  return [...ids];
+}
+
 // CHECK IF ACTOR CAN ACCESS BRANCH
 // Strict scope: Super Admin is global, everyone else only reaches their
 // primary branch plus explicit assignments (mirrors can_access_branch()).
