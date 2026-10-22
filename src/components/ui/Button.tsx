@@ -33,7 +33,7 @@ export function Button({
 }: ButtonProps) {
   return (
     <button
-      className={`inline-flex min-w-0 shrink-0 touch-manipulation items-center justify-center whitespace-normal sm:whitespace-nowrap font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/30 disabled:opacity-50 disabled:cursor-not-allowed overflow-hidden text-overflow-ellipsis active:scale-[0.98] ${variantClasses[variant]} ${sizeClasses[size]} ${className}`}
+      className={`inline-flex min-w-0 shrink-0 touch-manipulation items-center justify-center whitespace-normal break-words font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/30 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] ${variantClasses[variant]} ${sizeClasses[size]} ${className}`}
       type={type}
       {...props}
     >

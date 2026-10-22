@@ -627,6 +627,51 @@ export interface SaleSerialNumber {
   created_at: string;
 }
 
+export type QuotationStatus = 'draft' | 'sent' | 'accepted' | 'rejected' | 'expired' | 'converted' | 'cancelled';
+
+export interface Quotation {
+  id: string;
+  quote_number: string | null;
+  business_id: string;
+  branch_id: string;
+  prepared_for: string;
+  prepared_for_contact: string;
+  location_address: string;
+  customer_name: string;
+  customer_contact: string;
+  status: QuotationStatus;
+  valid_until: string | null;
+  notes: string;
+  terms_conditions: string;
+  discount_value: number;
+  tax_value: number;
+  subtotal: number;
+  total_amount: number;
+  created_by: string | null;
+  converted_to_sale_id: string | null;
+  converted_at: string | null;
+  created_at: string;
+  updated_at: string;
+  business?: Business;
+  branch?: Branch;
+}
+
+export interface QuotationItem {
+  id: string;
+  quotation_id: string;
+  product_id: string | null;
+  item_name: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  unit_price: number;
+  discount_value: number;
+  line_total: number;
+  sort_order: number;
+  created_at: string;
+  product?: Product;
+}
+
 export type NotificationType = 'report_priority' | 'report_escalation';
 
 export interface AppNotification {

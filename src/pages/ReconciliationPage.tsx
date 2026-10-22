@@ -90,10 +90,12 @@ export function ReconciliationPage() {
         {canManage && <Button onClick={() => setShowPeriodModal(true)} className="w-full sm:w-auto"><Plus size={18} /> New Period</Button>}
       </div>
 
-      <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">
-        <p className="text-xs font-medium text-blue-700">Formula per product:</p>
+      <details className="group bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">
+        <summary className="text-xs font-medium text-blue-700 cursor-pointer select-none">
+          Formula per product
+        </summary>
         <p className="text-xs text-blue-600 mt-1">Opening + Received + Transfers In + Authorized Additions − Sales/Issues − Transfers Out − Damages − Returns/Deductions ± Adjustments = <span className="font-semibold">Expected Closing</span> · compare with physical count → variance</p>
-      </div>
+      </details>
 
       {isBusinessLevel && (
         <Select value={filterBranch} onChange={(e) => setFilterBranch(e.target.value)} className="w-56">
@@ -308,16 +310,16 @@ function PeriodDetailView({ period, onBack, onRefresh }: { period: InventoryPeri
       <button onClick={onBack} className="text-sm text-slate-500 hover:text-slate-700">← Back to Reconciliation</button>
       {actionError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{actionError}</p>}
 
-      <div className="bg-white rounded-2xl border border-slate-200 p-6">
-        <div className="flex items-start justify-between">
-          <div>
-            <div className="flex items-center gap-2">
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-6">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-lg font-bold text-slate-900">{formatDate(period.period_start)} – {formatDate(period.period_end)}</h2>
               <Badge className={PERIOD_STATUS_STYLES[period.status]}>{PERIOD_STATUS_LABELS[period.status]}</Badge>
             </div>
             <p className="text-sm text-slate-400 mt-1">{(period.branch as unknown as Branch)?.name} · {(period.business as unknown as Business)?.name}</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2 shrink-0">
             {period.status === 'open' && canManage && <Button size="sm" onClick={()=>handleStatusChange('submitted')}>Submit for Approval</Button>}
             {period.status === 'submitted' && canApprove && <><Button size="sm" onClick={()=>handleStatusChange('approved')}><CheckCircle size={14}/>Approve</Button><Button variant="outline" size="sm" onClick={()=>handleStatusChange('open')}>Reopen</Button></>}
             {period.status === 'approved' && canApprove && <Button variant="outline" size="sm" onClick={()=>handleStatusChange('amended')}>Amend</Button>}
@@ -331,17 +333,17 @@ function PeriodDetailView({ period, onBack, onRefresh }: { period: InventoryPeri
         )}
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
         <div className="relative flex-1">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
-          <input placeholder="Search product..." value={search} onChange={(e)=>setSearch(e.target.value)} className="w-full pl-9 pr-3 py-2.5 text-sm border border-slate-300 rounded-lg outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10"/>
+          <input aria-label="Search product" placeholder="Search product..." value={search} onChange={(e)=>setSearch(e.target.value)} className="w-full pl-9 pr-3 py-2.5 text-sm border border-slate-300 rounded-lg outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10"/>
         </div>
-        {canManage && !isLocked && <Button variant="outline" size="sm" onClick={()=>setShowAddProduct(true)}><Plus size={14}/>Add Product Line</Button>}
+        {canManage && !isLocked && <Button variant="outline" size="sm" onClick={()=>setShowAddProduct(true)} className="w-full sm:w-auto"><Plus size={14}/>Add Product Line</Button>}
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm min-w-[56rem]">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50/50 text-xs text-slate-500">
                 <th className="text-left px-3 py-3 sm:px-4">Product</th>
@@ -419,12 +421,12 @@ function PeriodDetailView({ period, onBack, onRefresh }: { period: InventoryPeri
           <h3 className="text-sm font-semibold text-slate-900 mb-3 flex items-center gap-2"><History size={16}/> Variances ({variances.length})</h3>
           <div className="space-y-2">
             {variances.map((v)=>(
-              <div key={v.id} className="flex items-center justify-between border border-slate-100 rounded-xl px-4 py-3">
-                <div>
-                  <p className="text-sm font-medium text-slate-900">{(v.product as unknown as Product)?.name} · <span className={`font-bold ${v.variance_quantity<0?'text-rose-600':'text-emerald-600'}`}>{v.variance_quantity>0?'+':''}{formatNumber(v.variance_quantity)}</span></p>
+              <div key={v.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border border-slate-100 rounded-xl px-4 py-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-slate-900 truncate" title={(v.product as unknown as Product)?.name}>{(v.product as unknown as Product)?.name} · <span className={`font-bold ${v.variance_quantity<0?'text-rose-600':'text-emerald-600'}`}>{v.variance_quantity>0?'+':''}{formatNumber(v.variance_quantity)}</span></p>
                   <p className="text-xs text-slate-400">{v.possible_reason ?? v.explanation ?? 'No reason recorded'}{v.requires_management_attention && ' · Requires Management Attention'}</p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 shrink-0">
                   <Badge className={VARIANCE_STATUS_STYLES[v.approval_status]}>{v.approval_status}</Badge>
                   {v.approval_status==='pending' && canApprove && (
                     <div className="flex gap-1">
@@ -453,7 +455,7 @@ function EditableCell({ value, disabled, placeholder, onSave }: { value: number|
   if (disabled) return <span className="text-slate-700">{value===null ? '—' : formatNumber(value)}</span>;
   if (!editing) return <button onClick={()=>{setVal(value?.toString()??''); setEditing(true);}} className="w-full text-right py-1 px-1.5 rounded hover:bg-white border border-transparent hover:border-slate-200">{value===null ? <span className="text-slate-300 text-xs">{placeholder ?? '—'}</span> : formatNumber(value)}</button>;
   return (
-    <input autoFocus value={val} onChange={(e)=>setVal(e.target.value)} onBlur={()=>{const n=Number(val); if(!isNaN(n)){onSave(n);} setEditing(false);}} onKeyDown={(e)=>{if(e.key==='Enter'){const n=Number(val); if(!isNaN(n)) onSave(n); setEditing(false);} if(e.key==='Escape') setEditing(false);}} className="w-16 text-right border border-slate-300 rounded px-1.5 py-1 text-sm outline-none focus:border-slate-900" type="number"/>
+    <input autoFocus value={val} onChange={(e)=>setVal(e.target.value)} onBlur={()=>{const n=Number(val); if(!isNaN(n)){onSave(n);} setEditing(false);}} onKeyDown={(e)=>{if(e.key==='Enter'){const n=Number(val); if(!isNaN(n)) onSave(n); setEditing(false);} if(e.key==='Escape') setEditing(false);}} className="w-24 text-right border border-slate-300 rounded px-1.5 py-1 text-sm outline-none focus:border-slate-900 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" type="number"/>
   );
 }
 

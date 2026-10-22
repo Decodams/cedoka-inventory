@@ -252,7 +252,7 @@ export function ProductsPage() {
         <>
           <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full min-w-[48rem]">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50/50">
                     <th className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wider px-3 py-3 sm:px-5">Name</th>

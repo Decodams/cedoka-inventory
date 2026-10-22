@@ -150,7 +150,6 @@ export function InventoryPage() {
   const error = tab === 'balances' ? errorBalances : tab === 'assets' ? errorAssets : errorTxns;
   const refetch = tab === 'balances' ? refetchBalances : tab === 'assets' ? refetchAssets : refetchTxns;
 
-  if (loading) return <LoadingState />;
   if (error) return <ErrorState message="Could not load inventory data." onRetry={refetch} />;
 
   return (
@@ -183,7 +182,7 @@ export function InventoryPage() {
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
-        <div className="flex gap-1 bg-slate-100 rounded-lg p-1 overflow-x-auto w-full sm:w-auto shrink-0">
+        <div className="flex gap-1 bg-slate-100 rounded-lg p-1 overflow-x-auto w-full sm:w-auto min-w-0">
           <button
             onClick={() => setTab('balances')}
             className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all whitespace-nowrap ${tab === 'balances' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}
@@ -206,6 +205,7 @@ export function InventoryPage() {
         <div className="relative flex-1 min-w-0 w-full">
           <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
+            aria-label="Search inventory"
             placeholder="Search products..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -220,7 +220,9 @@ export function InventoryPage() {
         )}
       </div>
 
-      {tab === 'assets' ? (
+      {loading ? (
+        <LoadingState />
+      ) : tab === 'assets' ? (
         filteredAssets.length > 0 ? (
           <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
             <div className="overflow-x-auto">
@@ -243,13 +245,13 @@ export function InventoryPage() {
                         <div className="flex items-center gap-2.5 min-w-0">
                           <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center shrink-0"><Wrench size={14} /></div>
                           <div className="min-w-0">
-                            <p className="text-sm font-medium text-slate-900 truncate">{a.name}</p>
-                            <p className="text-xs text-slate-400 truncate">{a.asset_code ?? a.serial_number ?? '—'}</p>
+                            <p className="text-sm font-medium text-slate-900 truncate" title={a.name}>{a.name}</p>
+                            <p className="text-xs text-slate-400 truncate" title={a.asset_code ?? a.serial_number ?? undefined}>{a.asset_code ?? a.serial_number ?? '—'}</p>
                           </div>
                         </div>
                       </td>
                       <td className="px-3 py-3 sm:px-5 hidden sm:table-cell"><Badge className="bg-slate-100 text-slate-600 border-slate-200 capitalize">{a.asset_type}</Badge></td>
-                      <td className="px-3 py-3 sm:px-5 hidden md:table-cell text-sm text-slate-600 truncate max-w-[160px]">{a.branch?.name ?? a.location ?? '—'}</td>
+                      <td className="px-3 py-3 sm:px-5 hidden md:table-cell text-sm text-slate-600 truncate max-w-[160px]" title={a.branch?.name ?? a.location ?? undefined}>{a.branch?.name ?? a.location ?? '—'}</td>
                       <td className="px-3 py-3 sm:px-5 text-center"><Badge className={a.condition === 'damaged' || a.condition === 'poor' ? 'bg-rose-100 text-rose-700 border-rose-200' : a.condition === 'under_repair' ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200'}>{a.condition}</Badge></td>
                       <td className="px-3 py-3 sm:px-5 text-center"><Badge className={a.status === 'available' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : a.status === 'damaged' ? 'bg-rose-100 text-rose-700 border-rose-200' : 'bg-slate-100 text-slate-600 border-slate-200'}>{a.status}</Badge></td>
                       <td className="px-3 py-3 sm:px-5 hidden lg:table-cell text-right text-sm font-medium text-slate-900">{a.quantity} {a.unit}</td>
@@ -311,8 +313,8 @@ export function InventoryPage() {
                               <Package size={16} />
                             </div>
                             <div className="min-w-0">
-                              <p className="text-sm font-medium text-slate-900 truncate">{b.product?.name}</p>
-                              {b.product?.sku && <p className="text-xs text-slate-400">{b.product.sku}</p>}
+                              <p className="text-sm font-medium text-slate-900 truncate" title={b.product?.name}>{b.product?.name}</p>
+                              {b.product?.sku && <p className="text-xs text-slate-400 truncate" title={b.product.sku}>{b.product.sku}</p>}
                             </div>
                           </div>
                         </td>
@@ -389,7 +391,7 @@ export function InventoryPage() {
                       <tr key={t.id} className="hover:bg-slate-50/50">
                         <td className="px-3 py-3 sm:px-5 text-xs text-slate-400 whitespace-nowrap">{formatDateTime(t.transaction_date)}</td>
                         <td className="px-3 py-3 sm:px-5">
-                          <p className="text-sm font-medium text-slate-900 truncate max-w-[160px]">{t.product?.name}</p>
+                          <p className="text-sm font-medium text-slate-900 truncate max-w-[160px]" title={t.product?.name}>{t.product?.name}</p>
                         </td>
                         <td className="px-3 py-3 sm:px-5">
                           <Badge className={MOVEMENT_TYPE_STYLES[t.movement_type as MovementType]}>
@@ -402,7 +404,7 @@ export function InventoryPage() {
                           </span>
                         </td>
                         <td className="px-3 py-3 sm:px-5 hidden sm:table-cell text-sm text-slate-600">{t.branch?.name}</td>
-                        <td className="px-3 py-3 sm:px-5 hidden md:table-cell text-sm text-slate-500 max-w-[180px] truncate">{t.reason ?? '—'}</td>
+                        <td className="px-3 py-3 sm:px-5 hidden md:table-cell text-sm text-slate-500 max-w-[180px] truncate" title={t.reason ?? undefined}>{t.reason ?? '—'}</td>
                         <td className="px-3 py-3 sm:px-5 hidden lg:table-cell text-sm text-slate-400">{t.actor?.full_name ?? '—'}</td>
                       </tr>
                     );

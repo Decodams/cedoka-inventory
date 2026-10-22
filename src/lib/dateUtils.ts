@@ -12,6 +12,25 @@ export function getWeekEnd(date: Date = new Date()): Date {
   return d;
 }
 
+/**
+ * Monday of the Mon-Sat operating week (the Cedoka sales week) that contains
+ * the given date. Sunday belongs to the week that started the previous Monday.
+ */
+export function getSalesWeekStart(date: Date = new Date()): Date {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay();
+  d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+  return d;
+}
+
+/** Saturday of the Mon-Sat operating week that contains the given date. */
+export function getSalesWeekEnd(date: Date = new Date()): Date {
+  const d = getSalesWeekStart(date);
+  d.setDate(d.getDate() + 5);
+  return d;
+}
+
 export function formatDate(date: string | Date): string {
   const d = typeof date === 'string' ? new Date(date) : date;
   return d.toLocaleDateString('en-US', {

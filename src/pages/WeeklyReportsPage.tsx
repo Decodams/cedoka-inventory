@@ -11,6 +11,7 @@ import {
   FileText,
   History,
   Flag,
+  Wand2,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSupabaseQuery, supabase } from '@/hooks/useSupabaseQuery';
@@ -28,12 +29,13 @@ import {
   formatNumber,
   formatDate,
   weekRangeString,
-  getWeekStart,
-  getWeekEnd,
+  getSalesWeekStart,
+  getSalesWeekEnd,
   toDateString,
 } from '@/lib/dateUtils';
 import { isAtLeast, hasRole, accessibleBusinessIds, fullAccessibleBranchIds } from '@/lib/rbac';
 import { sanitizeMultiline } from '@/lib/sanitize';
+import { AutoGenerateWeeklyReportModal } from '@/components/AutoGenerateWeeklyReport';
 import type { WeeklyReport, Business, Branch, ReportAmendment, UserProfile, ReportPriority } from '@/types/database';
 
 const REPORT_PRIORITY_LABELS: Record<ReportPriority, string> = {
@@ -53,6 +55,8 @@ export function WeeklyReportsPage() {
   const [selectedReport, setSelectedReport] = useState<WeeklyReport | null>(null);
   const [showFormModal, setShowFormModal] = useState(false);
   const [editingReport, setEditingReport] = useState<WeeklyReport | null>(null);
+  const [autoGenOpen, setAutoGenOpen] = useState(false);
+  const [autoGenData, setAutoGenData] = useState<{activities_notes:string;challenges_notes:string;issues_notes:string;improvement_notes:string}|null>(null);
   const [filterBusiness, setFilterBusiness] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [viewMode, setViewMode] = useState<'list' | 'detail'>('list');
@@ -131,32 +135,37 @@ export function WeeklyReportsPage() {
         <div>
           <h2 className="text-lg font-semibold text-slate-900">Weekly Reports</h2>
           <p className="text-sm text-slate-500 mt-0.5">
-            Sunday–Saturday reporting cycle. One report per branch per week.
+            Monday–Saturday reporting cycle. One report per branch per week.
           </p>
         </div>
-        <Button onClick={() => { setEditingReport(null); setShowFormModal(true); }} className="w-full sm:w-auto">
-          <Plus size={18} /> New Report
-        </Button>
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+          <Button variant="outline" onClick={() => { setAutoGenData(null); setAutoGenOpen(true); }} className="w-full sm:w-auto">
+            <Wand2 size={18} /> Auto-Generate
+          </Button>
+          <Button onClick={() => { setEditingReport(null); setAutoGenData(null); setShowFormModal(true); }} className="w-full sm:w-auto">
+            <Plus size={18} /> New Report
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}
-      {isBusinessLevel && (
-        <div className="flex gap-3">
-          <Select value={filterBusiness} onChange={(e) => setFilterBusiness(e.target.value)} className="w-56">
+      <div className="flex flex-col sm:flex-row gap-3">
+        {isBusinessLevel && (
+          <Select value={filterBusiness} onChange={(e) => setFilterBusiness(e.target.value)} className="w-full sm:w-56">
             <option value="all">All Businesses</option>
             {businesses?.map((b) => (
               <option key={b.id} value={b.id}>{b.name}</option>
             ))}
           </Select>
-          <Select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="w-44">
-            <option value="all">All Statuses</option>
-            <option value="draft">Draft</option>
-            <option value="submitted">Submitted</option>
-            <option value="reviewed">Reviewed</option>
-            <option value="amended">Amended</option>
-          </Select>
-        </div>
-      )}
+        )}
+        <Select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="w-full sm:w-44">
+          <option value="all">All Statuses</option>
+          <option value="draft">Draft</option>
+          <option value="submitted">Submitted</option>
+          <option value="reviewed">Reviewed</option>
+          <option value="amended">Amended</option>
+        </Select>
+      </div>
 
       {reports && reports.length > 0 ? (
         <div className="space-y-3">
@@ -205,7 +214,7 @@ export function WeeklyReportsPage() {
                     <p className="text-xs text-slate-400 mt-0.5">
                       {report.business?.name} · {weekRangeString(report.week_start_date, report.week_end_date)}
                     </p>
-                    <div className="flex items-center gap-4 mt-2 text-xs text-slate-500">
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs text-slate-500">
                       <span className="flex items-center gap-1">
                         <TrendingUp size={13} className="text-emerald-500" />
                         {formatCurrency(Number(report.total_sales_value))}
@@ -242,14 +251,24 @@ export function WeeklyReportsPage() {
           businesses={businesses ?? []}
           branches={branches ?? []}
           currentUser={user}
-          onClose={() => { setShowFormModal(false); setEditingReport(null); }}
+          autoGen={autoGenData}
+          onClose={() => { setShowFormModal(false); setEditingReport(null); setAutoGenData(null); }}
           onSaved={() => {
             refetch();
             setShowFormModal(false);
             setEditingReport(null);
+            setAutoGenData(null);
           }}
         />
       )}
+      <AutoGenerateWeeklyReportModal
+        open={autoGenOpen}
+        onClose={() => setAutoGenOpen(false)}
+        businesses={businesses ?? []}
+        branches={branches ?? []}
+        currentUser={user}
+        onGenerated={(n) => { setAutoGenData(n); setEditingReport(null); setShowFormModal(true); setAutoGenOpen(false); }}
+      />
     </div>
   );
 }
@@ -259,6 +278,7 @@ function ReportFormModal({
   businesses,
   branches,
   currentUser,
+  autoGen,
   onClose,
   onSaved,
 }: {
@@ -266,6 +286,7 @@ function ReportFormModal({
   businesses: Business[];
   branches: Branch[];
   currentUser: UserProfile | null;
+  autoGen?: { activities_notes: string; challenges_notes: string; issues_notes: string; improvement_notes: string } | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -288,7 +309,7 @@ function ReportFormModal({
     return businessId ? scoped.filter((b) => b.business_id === businessId) : scoped;
   }, [isExecutive, branches, userBranchScope, businessId]);
 
-  const weekEnd = toDateString(getWeekEnd(new Date()));
+  const weekEnd = toDateString(getSalesWeekEnd(new Date()));
   const [weekEndDate, setWeekEndDate] = useState(report?.week_end_date ?? weekEnd);
   const [priority, setPriority] = useState<ReportPriority>(report?.priority ?? 'normal');
 
@@ -317,10 +338,10 @@ function ReportFormModal({
   const [pendingPurchaseValue, setPendingPurchaseValue] = useState(report?.pending_purchase_value?.toString() ?? '0');
   const [pendingProcurementValue, setPendingProcurementValue] = useState(report?.pending_procurement_value?.toString() ?? '0');
 
-  const [activitiesNotes, setActivitiesNotes] = useState(report?.activities_notes ?? '');
-  const [challengesNotes, setChallengesNotes] = useState(report?.challenges_notes ?? '');
-  const [issuesNotes, setIssuesNotes] = useState(report?.issues_notes ?? '');
-  const [improvementNotes, setImprovementNotes] = useState(report?.improvement_notes ?? '');
+  const [activitiesNotes, setActivitiesNotes] = useState(report?.activities_notes ?? autoGen?.activities_notes ?? '');
+  const [challengesNotes, setChallengesNotes] = useState(report?.challenges_notes ?? autoGen?.challenges_notes ?? '');
+  const [issuesNotes, setIssuesNotes] = useState(report?.issues_notes ?? autoGen?.issues_notes ?? '');
+  const [improvementNotes, setImprovementNotes] = useState(report?.improvement_notes ?? autoGen?.improvement_notes ?? '');
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -333,7 +354,7 @@ function ReportFormModal({
   const deriveOpening = async (bId: string, wEnd: string) => {
     if (report) return;
     if (!bId || !wEnd) return;
-    const ws = toDateString(getWeekStart(new Date(wEnd)));
+    const ws = toDateString(getSalesWeekStart(new Date(wEnd)));
     // find most recent report before this week for same branch
     const { data } = await supabase
       .from('weekly_reports')
@@ -355,10 +376,20 @@ function ReportFormModal({
       setError('Please select a business and branch');
       return;
     }
+    // A submitted or reviewed report is never overwritten silently.
+    if (
+      report &&
+      (report.status === 'submitted' || report.status === 'reviewed') &&
+      !window.confirm(
+        `This report is already ${report.status}. Saving will overwrite its current content. Continue?`,
+      )
+    ) {
+      return;
+    }
     setSaving(true);
     setError(null);
 
-    const ws = toDateString(getWeekStart(new Date(weekEndDate)));
+    const ws = toDateString(getSalesWeekStart(new Date(weekEndDate)));
     const data = {
       business_id: businessId,
       branch_id: branchId,
@@ -401,7 +432,11 @@ function ReportFormModal({
         .from('weekly_reports')
         .insert(data);
       if (insertError) {
-        setError('Could not create the report. Please try again.');
+        setError(
+          insertError.code === '23505'
+            ? 'A report already exists for this branch and week. Edit that report instead.'
+            : 'Could not create the report. Please try again.',
+        );
         setSaving(false);
         return;
       }
@@ -413,6 +448,12 @@ function ReportFormModal({
   return (
     <Modal open onClose={onClose} title={report ? 'Edit Weekly Report' : 'New Weekly Report'} size="xl">
       <div className="space-y-6">
+        {autoGen && !report && (
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex items-center gap-2 text-sm text-blue-700">
+            <Wand2 size={16} />
+            Auto-generated from Daily Activities (Mon–Sat). Review and edit before saving.
+          </div>
+        )}
         {/* Header: Business, Branch, Week, Priority */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <Select label="Business Unit" value={businessId} onChange={(e) => { setBusinessId(e.target.value); setBranchId(''); }} disabled={!!report}>
@@ -550,6 +591,7 @@ function ReportDetailView({
   const [amendReason, setAmendReason] = useState('');
   const [reviewNotes, setReviewNotes] = useState(report.review_notes ?? '');
   const [saving, setSaving] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [escalated, setEscalated] = useState(report.escalated ?? false);
   const [escalatedAt, setEscalatedAt] = useState(report.escalated_at ?? null);
 
@@ -573,6 +615,7 @@ function ReportDetailView({
 
   const handleEscalate = async () => {
     setSaving(true);
+    setActionError(null);
     const { error } = await supabase
       .from('weekly_reports')
       .update({
@@ -582,7 +625,10 @@ function ReportDetailView({
       })
       .eq('id', report.id);
     setSaving(false);
-    if (error) return;
+    if (error) {
+      setActionError('Could not escalate this report. Please try again.');
+      return;
+    }
     setEscalated(true);
     setEscalatedAt(new Date().toISOString());
     onRefresh();
@@ -590,6 +636,7 @@ function ReportDetailView({
 
   const handleReview = async (approve: boolean) => {
     setSaving(true);
+    setActionError(null);
     const { error } = await supabase
       .from('weekly_reports')
       .update({
@@ -600,7 +647,10 @@ function ReportDetailView({
       })
       .eq('id', report.id);
     setSaving(false);
-    if (error) return;
+    if (error) {
+      setActionError('Could not save the review. Please try again.');
+      return;
+    }
     onRefresh();
     onBack();
   };
@@ -608,6 +658,7 @@ function ReportDetailView({
   const handleAmend = async () => {
     if (!amendReason.trim()) return;
     setSaving(true);
+    setActionError(null);
 
     const previousValues = {
       opening_stock: report.opening_stock,
@@ -633,6 +684,7 @@ function ReportDetailView({
 
     if (amendError) {
       setSaving(false);
+      setActionError('Could not amend this report. Please try again.');
       return;
     }
 
@@ -655,11 +707,11 @@ function ReportDetailView({
       </button>
 
       {/* Report header */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-6">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <h2 className="text-xl font-bold text-slate-900">{report.branch?.name}</h2>
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-6">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2 mb-1">
+              <h2 className="text-lg sm:text-xl font-bold text-slate-900">{report.branch?.name}</h2>
               <Badge className={REPORT_STATUS_STYLES[report.status]}>
                 {REPORT_STATUS_LABELS[report.status]}
               </Badge>
@@ -687,7 +739,7 @@ function ReportDetailView({
               <p className="text-xs text-rose-500 mt-1">Escalated on {formatDate(escalatedAt)}</p>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             {canEscalate && (
               <Button variant="outline" size="sm" className="text-rose-600 border-rose-200 hover:bg-rose-50" onClick={handleEscalate} disabled={saving}>
                 <Flag size={14} /> Escalate
@@ -700,6 +752,11 @@ function ReportDetailView({
             )}
           </div>
         </div>
+        {actionError && (
+          <p role="alert" className="mt-3 text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+            {actionError}
+          </p>
+        )}
       </div>
 
       {/* Stock Reconciliation */}
@@ -796,6 +853,11 @@ function ReportDetailView({
             onChange={(e) => setReviewNotes(e.target.value)}
             placeholder="Add review comments..."
           />
+          {actionError && (
+            <p role="alert" className="mt-3 text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+              {actionError}
+            </p>
+          )}
           <div className="flex gap-3 mt-4">
             <Button onClick={() => handleReview(true)} disabled={saving}>
               <CheckCircle size={16} /> Approve & Mark Reviewed
@@ -823,6 +885,11 @@ function ReportDetailView({
               Amending this report will record the current values and your reason in the audit trail.
               You will then be able to edit the report.
             </p>
+            {actionError && (
+              <p role="alert" className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+                {actionError}
+              </p>
+            )}
             <Textarea
               label="Reason for Amendment"
               value={amendReason}

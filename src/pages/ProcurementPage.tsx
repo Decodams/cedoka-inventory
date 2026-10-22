@@ -312,7 +312,7 @@ function GRNModal({ purchase, onClose, onSaved }: { purchase: PurchaseRequest; o
             <Button variant="ghost" size="sm" onClick={() => setItems([...items, { product_id: '', quantity_ordered: '0', quantity_received: '0', quantity_damaged: '0', quantity_rejected: '0', quantity_short: '0' }])}><Plus size={14}/>Add Item</Button>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-xs">
+            <table className="w-full text-xs min-w-[42rem]">
               <thead><tr className="text-slate-500 text-left"><th className="px-2 py-2">Product</th><th className="px-2 py-2">Ordered</th><th className="px-2 py-2">Received</th><th className="px-2 py-2">Damaged</th><th className="px-2 py-2">Rejected</th><th className="px-2 py-2">Short</th><th></th></tr></thead>
               <tbody>
                 {items.map((it, idx) => (

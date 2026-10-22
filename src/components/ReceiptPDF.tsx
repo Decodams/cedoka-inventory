@@ -1,14 +1,16 @@
 ﻿import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { supabase } from '@/lib/supabaseClient';
-import { formatCurrency, formatDate } from '@/lib/dateUtils';
-import logoUrl from '@/logo.jpeg';
-
-const COMPANY = 'CEDOKA GLOBAL LIMITED';
-const ADDRESS_1 = '35, Ailegun Road, Ejigbo, Lagos';
-const ADDRESS_2 = 'Top Mak Plaza, Awka';
-const CONTACT_PHONES = '07045851131 | 09128817136 | 09074190070';
-const CONTACT_ONLINE = 'cedokamall@gmail.com | cedokamall.com';
+import { formatDate } from '@/lib/dateUtils';
+import {
+  addressLine1,
+  addressLine2,
+  companyName,
+  contactOnline,
+  contactPhones,
+  loadLogoDataUrl,
+  pdfMoney,
+} from '@/lib/pdfCommon';
 
 interface ReceiptItem {
   quantity: number;
@@ -36,26 +38,6 @@ interface ReceiptSale {
 
 // jsPDF's built-in helvetica font (WinAnsi) has no naira glyph, so amounts
 // would render as blanks - use the NGN code instead for PDF output.
-const pdfMoney = (value: number): string => formatCurrency(value).replace(/₦/g, 'NGN ');
-
-let cachedLogo: string | null = null;
-async function loadLogoDataUrl(): Promise<string | null> {
-  if (cachedLogo) return cachedLogo;
-  try {
-    const response = await fetch(logoUrl);
-    const blob = await response.blob();
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = () => reject(new Error('logo read failed'));
-      reader.readAsDataURL(blob);
-    });
-    cachedLogo = dataUrl;
-    return dataUrl;
-  } catch {
-    return null;
-  }
-}
 
 async function buildReceiptPdf(saleId: string): Promise<{ pdf: jsPDF; receiptNo: string }> {
   const { data, error } = await supabase.from('daily_sales').select('*, product:products(id,name), items:sale_items(quantity,unit,serial_number,unit_price,discount_value,product:products(name)), serial_links:sale_serial_numbers(serial_number), branch:branches(name), business:businesses(name), salesperson:user_profiles!daily_sales_salesperson_id_fkey(full_name)').eq('id', saleId).single();
@@ -81,17 +63,17 @@ async function buildReceiptPdf(saleId: string): Promise<{ pdf: jsPDF; receiptNo:
   }
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(14);
-  pdf.text(COMPANY, width / 2, y, { align: 'center' });
+  pdf.text(companyName, width / 2, y, { align: 'center' });
   y += 6;
   pdf.setFont('helvetica', 'normal');
   pdf.setFontSize(8);
-  pdf.text(ADDRESS_1, width / 2, y, { align: 'center' });
+  pdf.text(addressLine1, width / 2, y, { align: 'center' });
   y += 4;
-  pdf.text(ADDRESS_2, width / 2, y, { align: 'center' });
+  pdf.text(addressLine2, width / 2, y, { align: 'center' });
   y += 4;
-  pdf.text(CONTACT_PHONES, width / 2, y, { align: 'center' });
+  pdf.text(contactPhones, width / 2, y, { align: 'center' });
   y += 4;
-  pdf.text(CONTACT_ONLINE, width / 2, y, { align: 'center' });
+  pdf.text(contactOnline, width / 2, y, { align: 'center' });
   y += 7;
   pdf.setDrawColor(180);
   pdf.line(margin, y, width - margin, y);

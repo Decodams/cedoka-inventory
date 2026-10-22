@@ -52,10 +52,10 @@
     background: rgb(203 213 225);
     border-radius: 9999px;
   }
-  .safe-top { padding-top: env(safe-area-inset-top); }
-  .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
-  .safe-left { padding-left: env(safe-area-inset-left); }
-  .safe-right { padding-right: env(safe-area-inset-right); }
+  .safe-top { padding-top: env(safe-area-inset-top, 0px); }
+  .safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .safe-left { padding-left: env(safe-area-inset-left, 0px); }
+  .safe-right { padding-right: env(safe-area-inset-right, 0px); }
 }
 
 @layer base {
@@ -81,16 +81,5 @@
 	.overflow-x-auto {
 		scrollbar-width: thin;
 		scrollbar-color: #cbd5e1 transparent;
-	}
-
-	.overflow-x-auto table {
-		min-width: 42rem;
-	}
-}
-
-@media (max-width: 639px) {
-	.grid-cols-2,
-	.grid-cols-5 {
-		grid-template-columns: minmax(0, 1fr);
 	}
 }

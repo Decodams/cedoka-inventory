@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   CalendarDays,
   FileText,
+  FileSignature,
   LogOut,
   Menu,
   X,
@@ -42,6 +43,7 @@ export type PageKey =
   | 'transfers'
   | 'procurement'
   | 'sales'
+  | 'quotations'
   | 'expenses'
   | 'issues'
   | 'activities'
@@ -70,6 +72,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'transfers', label: 'Stock Transfers', icon: ArrowLeftRight, visible: (r) => r !== 'sales_person', section: 'operations' },
   { key: 'procurement', label: 'Procurement', icon: ShoppingCart, visible: (r) => r !== 'sales_person', section: 'operations' },
   { key: 'sales', label: 'Daily Sales', icon: DollarSign, visible: () => true, section: 'operations' },
+  { key: 'quotations', label: 'Quotations', icon: FileSignature, visible: (r) => r === 'super_admin' || r === 'admin' || r === 'manager', section: 'operations' },
   { key: 'expenses', label: 'Expenses', icon: Wallet, visible: (r) => r !== 'sales_person', section: 'operations' },
   { key: 'issues', label: 'Issues & Challenges', icon: AlertTriangle, visible: () => true, section: 'operations' },
   { key: 'activities', label: 'Daily Activities', icon: CalendarDays, visible: () => true, section: 'operations' },
@@ -236,7 +239,13 @@ export function AppShell({ currentPage, onPageChange, children }: AppShellProps)
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0 lg:pl-64">
         {/* Top bar */}
-        <header className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 lg:px-8 py-3.5 safe-top flex items-center justify-between">
+        <header
+          className={`sticky top-0 z-20 bg-white border-b border-slate-200 px-4 lg:px-8 pb-3.5 flex items-center justify-between ${
+            online
+              ? 'pt-[calc(0.875rem+env(safe-area-inset-top,0px))]'
+              : 'pt-[calc(0.875rem+env(safe-area-inset-top,0px)+2.25rem)]'
+          }`}
+        >
           <div className="flex items-center gap-3">
             <button
               onClick={() => setSidebarOpen(true)}

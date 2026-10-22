@@ -196,8 +196,11 @@ export function UserManagementPage() {
                       <div className="flex items-center gap-3">
                         <div className="w-9 h-9 rounded-full bg-slate-900 text-white flex items-center justify-center text-sm font-semibold shrink-0">{p.full_name.charAt(0).toUpperCase()}</div>
                         <div className="min-w-0">
-                          <p className="text-sm font-medium text-slate-900 truncate">{p.full_name}</p>
-                          <p className="text-xs text-slate-400 truncate flex items-center gap-1"><Mail size={11} /> {p.email}</p>
+                          <p className="text-sm font-medium text-slate-900 truncate" title={p.full_name}>{p.full_name}</p>
+                          <p className="text-xs text-slate-400 flex items-center gap-1 min-w-0">
+                            <Mail size={11} className="shrink-0" />
+                            <span className="truncate" title={p.email}>{p.email}</span>
+                          </p>
                         </div>
                       </div>
                     </td>
@@ -254,6 +257,11 @@ export function UserManagementPage() {
         <Modal open onClose={() => setDeletingUser(null)} title="Delete User" size="sm">
           <div className="space-y-4">
             <p className="text-sm text-slate-600">Delete <strong>{deletingUser.full_name}</strong> ({deletingUser.email})? This permanently removes their account and cannot be undone. Super Admin accounts are locked and cannot be deleted.</p>
+            {deleteError && (
+              <p role="alert" className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+                {deleteError}
+              </p>
+            )}
             <div className="flex justify-end gap-3">
               <Button variant="outline" onClick={() => setDeletingUser(null)}>Cancel</Button>
               <Button variant="danger" onClick={() => handleDelete(deletingUser)} disabled={updating}>{updating ? 'Deleting...' : 'Delete User'}</Button>

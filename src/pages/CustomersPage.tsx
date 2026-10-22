@@ -59,7 +59,6 @@ export function CustomersPage() {
     );
   }, [customers, needle]);
 
-  if (loading) return <LoadingState />;
   if (error) return <ErrorState message="Could not load customers." onRetry={refetch} />;
 
 
@@ -77,6 +76,7 @@ export function CustomersPage() {
         <div className="relative flex-1">
           <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
+            aria-label="Search customers"
             placeholder="Search by name, phone, or location..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -91,7 +91,9 @@ export function CustomersPage() {
         )}
       </div>
 
-      {filtered.length ? (
+      {loading ? (
+        <LoadingState />
+      ) : filtered.length ? (
         <>
           <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
             <div className="overflow-x-auto">
@@ -112,12 +114,12 @@ export function CustomersPage() {
                         <div className="flex items-center gap-3 min-w-0">
                           <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-semibold text-sm shrink-0">{c.name.charAt(0).toUpperCase()}</div>
                           <div className="min-w-0">
-                            <p className="text-sm font-medium text-slate-900 truncate">{c.name}</p>
+                            <p className="text-sm font-medium text-slate-900 truncate" title={c.name}>{c.name}</p>
                           </div>
                         </div>
                       </td>
                       <td className="px-3 py-3 sm:px-5 hidden sm:table-cell text-sm text-slate-600">{c.phone ?? <span className="text-slate-400">-</span>}</td>
-                      <td className="px-3 py-3 sm:px-5 hidden md:table-cell text-sm text-slate-600 max-w-[220px]"><span className="block truncate">{c.address?.trim() ? c.address : '-'}</span></td>
+                      <td className="px-3 py-3 sm:px-5 hidden md:table-cell text-sm text-slate-600 max-w-[220px]"><span className="block truncate" title={c.address ?? undefined}>{c.address?.trim() ? c.address : '-'}</span></td>
                       <td className="px-3 py-3 sm:px-5">
                         <Badge className={c.is_active ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-gray-100 text-gray-500 border-gray-200'}>
                           {c.is_active ? 'Active' : 'Inactive'}
@@ -188,9 +190,17 @@ export function CustomersPage() {
         ) : (
           <EmptyState
             icon={<Users size={32} />}
-            title="No customers yet"
-            description="Add customers to link sales, receivables, and outstanding balances."
-            action={<Button onClick={() => setShowModal(true)}><Plus size={18} /> New Customer</Button>}
+            title={search ? 'No customers match your search' : 'No customers yet'}
+            description={
+              search
+                ? 'Try a different name, phone number, or location.'
+                : 'Add customers to link sales, receivables, and outstanding balances.'
+            }
+            action={
+              search ? undefined : (
+                <Button onClick={() => setShowModal(true)}><Plus size={18} /> New Customer</Button>
+              )
+            }
           />
         )}
         {showModal && (
