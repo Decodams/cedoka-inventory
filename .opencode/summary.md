@@ -1,4 +1,4 @@
-﻿# Cedoka Inventory - Session Summary
+# Cedoka Inventory - Session Summary
 
 ## Objective
 **Round 1 (committed `93d673e`)**: ADMIN/MANAGER/BRANCH & INVENTORY ACCESS-CONTROL SPEC (33 sections) — strict multi-tenant RLS (Business → Location → Branch, one-admin-per-branch, IDOR prevention, audited movements, SQL tests). COMPLETE and pushed.

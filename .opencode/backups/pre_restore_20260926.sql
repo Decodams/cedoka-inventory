@@ -1,4 +1,4 @@
-﻿-- Pre-restore data backup generated 2026-09-26T06:08:38.8543168+01:00
+-- Pre-restore data backup generated 2026-09-26T06:08:38.8543168+01:00
 -- Project: erxhhqrzxgsklyhsuulx
 -- Source: SQL data export (full INSERT script)
 
