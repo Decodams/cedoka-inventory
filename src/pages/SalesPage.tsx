@@ -65,7 +65,7 @@ export function SalesPage() {
         <p className="text-sm text-slate-500">Complete one transaction with one or more products.</p>
       </div>
       <Button onClick={() => setShowModal(true)} className="w-full sm:w-auto"><Plus size={18} /> Record Sale</Button></div>
-    <div className="grid grid-cols-2 gap-4"><Metric label="Completed sales" value={formatCurrency(completed)} /><Metric label="Transactions" value={String(filtered.length)} /></div>
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2"><Metric label="Completed sales" value={formatCurrency(completed)} /><Metric label="Transactions" value={String(filtered.length)} /></div>
     <div className="flex flex-col gap-3 sm:flex-row">
       <label className="relative flex-1">
         <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -78,7 +78,7 @@ export function SalesPage() {
     </div>
     {receiptError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{receiptError}</p>}
     {filtered.length ? <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white"><div className="overflow-x-auto"><table className="w-full text-sm min-w-[34rem]"><thead><tr className="border-b bg-slate-50 text-left text-xs text-slate-500"><th className="px-3 py-3 sm:px-4">Date</th><th className="px-3 py-3 sm:px-4">Sale</th><th className="px-3 py-3 text-right">Total</th><th className="px-3 py-3">Status</th><th /></tr></thead><tbody className="divide-y">{pageRows.map((sale) => <tr key={sale.id} onClick={canViewDetails ? () => setViewSaleId(sale.id) : undefined} title={canViewDetails ? 'View sale details' : undefined} className={canViewDetails ? 'cursor-pointer' : undefined}><td className="px-3 py-3 sm:px-4 text-slate-500">{formatDate(sale.sale_date)}</td><td className="px-3 py-3 sm:px-4"><p className="font-medium">{sale.items?.length ? `${sale.items.length} item${sale.items.length === 1 ? '' : 's'}` : sale.product?.name || 'Sale'}</p><p className="text-xs text-slate-400">{sale.customer_name || 'Walk-in'} · {sale.branch?.name || 'Branch'}</p></td><td className="px-3 py-3 text-right font-semibold">{formatCurrency(Number(sale.unit_price) * sale.quantity - Number(sale.discount_value))}</td><td className="px-3 py-3"><Badge className={SALE_STATUS_STYLES[sale.status]}>{SALE_STATUS_LABELS[sale.status]}</Badge></td><td className="px-3 py-3"><span className="inline-flex items-center gap-1"><button className="text-slate-400 hover:text-slate-900" title="Download receipt" onClick={(e) => { e.stopPropagation(); setReceiptError(null); downloadReceipt(sale.id).catch((err: unknown) => setReceiptError(err instanceof Error ? err.message : 'Could not download the receipt.')); }}><Receipt size={16} /></button><button className="text-slate-400 hover:text-slate-900" title="Print receipt" onClick={(e) => { e.stopPropagation(); setReceiptError(null); printReceipt(sale.id).catch((err: unknown) => setReceiptError(err instanceof Error ? err.message : 'Could not print the receipt.')); }}><Printer size={16} /></button></span></td></tr>)}</tbody></table></div><div className="border-t px-4 py-3 flex flex-col sm:flex-row justify-between items-center gap-2 text-sm text-slate-500"><span>Showing {filtered.length === 0 ? 0 : (page - 1) * pageSize + 1} to {(page - 1) * pageSize + pageRows.length} of {filtered.length} sales</span><span className="flex items-center gap-2"><Button variant="ghost" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>Prev</Button>Page {page} of {totalPages}<Button variant="ghost" size="sm" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>Next</Button></span></div></div> : <EmptyState icon={<DollarSign size={32} />} title="No sales recorded" description="Sales will appear here once completed." action={<Button onClick={() => setShowModal(true)}><Plus size={18} />Record Sale</Button>} />}
-    {showModal && <SaleModal branches={branches ?? []} currentUser={user} onClose={() => setShowModal(false)} onSaved={() => { setShowModal(false); refetch(); }} />}
+    {showModal && <SaleModal branches={branches ?? []} currentUser={user} onClose={() => { setShowModal(false); refetch(); }} onSaved={() => { setShowModal(false); refetch(); }} />}
     {viewSaleId && <SaleDetailModal saleId={viewSaleId} onClose={() => setViewSaleId(null)} />}
   </div>;
 }
@@ -110,6 +110,12 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
   const [serialFilter, setSerialFilter] = useState('');
   const [availableSerials, setAvailableSerials] = useState<ProductSerialNumber[]>([]);
   const [loadingSerials, setLoadingSerials] = useState(false);
+  const [newSerial, setNewSerial] = useState('');
+  const [newSerialMode, setNewSerialMode] = useState<'unique' | 'shared'>('unique');
+  const [newSerialQty, setNewSerialQty] = useState('1');
+  const [registeringSerial, setRegisteringSerial] = useState(false);
+  const [serialRegistryMsg, setSerialRegistryMsg] = useState<string | null>(null);
+  const [showSerialRegistry, setShowSerialRegistry] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState('');
   const [lineUnit, setLineUnit] = useState('');
   const [productUnits, setProductUnits] = useState<Record<string, string[]>>({});
@@ -214,11 +220,27 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
       setSelectedSerials([]);
       setSerialFilter('');
       setSelectedGroup('');
+      setNewSerialMode(product.serial_tracking_mode === 'shared' ? 'shared' : 'unique');
+      setNewSerial('');
+      setSerialRegistryMsg(null);
+      setShowSerialRegistry(false);
     }
     setError(null);
   };
 
   const selectedMode = selectedProduct?.serial_tracking_mode ?? 'none';
+
+  const loadSerials = async (productId: string) => {
+    setLoadingSerials(true);
+    const { data } = await supabase
+      .from('product_serial_numbers')
+      .select('*')
+      .eq('product_id', productId)
+      .eq('status', 'available')
+      .order('serial_number');
+    setAvailableSerials((data ?? []) as ProductSerialNumber[]);
+    setLoadingSerials(false);
+  };
 
   useEffect(() => {
     if (!selectedProduct || (selectedProduct.serial_tracking_mode ?? 'none') === 'none') {
@@ -226,18 +248,41 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
       setLoadingSerials(false);
       return;
     }
-    setLoadingSerials(true);
-    supabase
-      .from('product_serial_numbers')
-      .select('*')
-      .eq('product_id', selectedProduct.id)
-      .eq('status', 'available')
-      .order('serial_number')
-      .then(({ data }) => {
-        setAvailableSerials(((data ?? []) as ProductSerialNumber[]));
-        setLoadingSerials(false);
-      });
+    void loadSerials(selectedProduct.id);
   }, [selectedProduct?.id]);
+
+  // Attendants can register a serial that was not added when the product was
+  // created — straight from the sale screen, without leaving the transaction.
+  const registerNewSerial = async () => {
+    const value = newSerial.trim();
+    if (!value || !selectedProduct) return;
+    setRegisteringSerial(true);
+    setSerialRegistryMsg(null);
+    setError(null);
+    const { error: rpcError } = await supabase.rpc('register_product_serial', {
+      p_product_id: selectedProduct.id,
+      p_serial_number: value,
+      p_mode: newSerialMode,
+      p_quantity: newSerialMode === 'shared' ? Number(newSerialQty) || 1 : 1,
+    });
+    setRegisteringSerial(false);
+    if (rpcError) {
+      setSerialRegistryMsg(rpcError.message);
+      return;
+    }
+    await loadSerials(selectedProduct.id);
+    if (selectedMode === 'none') {
+      // Non-serial-tracked product: still record the SN on the sale line.
+      setSerial(value);
+    } else if (newSerialMode === 'unique') {
+      setSelectedSerials((prev) => (prev.includes(value) ? prev : [...prev, value]));
+    } else {
+      setSelectedGroup(value);
+    }
+    setNewSerial('');
+    setNewSerialQty('1');
+    setSerialRegistryMsg(`"${value}" registered and selected for this sale.`);
+  };
 
   const stepQuantity = (delta: number) => {
     setQuantity((current) => {
@@ -555,6 +600,56 @@ function SaleModal({ branches, currentUser, onClose, onSaved }: { branches: Bran
                   )}
                 </div>
               )}
+
+              {/* Register a brand-new serial on the spot (unique or shared). */}
+              <div className="rounded-lg border border-dashed border-slate-300 bg-white/60 p-3">
+                <button
+                  type="button"
+                  onClick={() => setShowSerialRegistry((v) => !v)}
+                  className="flex w-full items-center justify-between text-left"
+                >
+                  <span className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                    <Plus size={13} className="text-emerald-600" /> Add a new serial number
+                  </span>
+                  <span className="text-xs text-slate-400">{showSerialRegistry ? 'Hide' : 'Open'}</span>
+                </button>
+                {showSerialRegistry && (
+                  <div className="mt-3 space-y-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
+                      <Input
+                        label="Serial number (SN)"
+                        value={newSerial}
+                        onChange={(event) => { setNewSerial(event.target.value); setSerialRegistryMsg(null); }}
+                        placeholder="e.g. SN/2026/000123"
+                        onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void registerNewSerial(); } }}
+                      />
+                      <div className="flex items-end">
+                        <Button size="sm" onClick={() => void registerNewSerial()} disabled={registeringSerial || !newSerial.trim()} className="w-full sm:w-auto">
+                          {registeringSerial ? 'Saving...' : 'Register & select'}
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <label className="flex items-center gap-1.5 text-xs text-slate-600">
+                        <input type="radio" name="new-serial-mode" checked={newSerialMode === 'unique'} onChange={() => setNewSerialMode('unique')} className="accent-slate-900" />
+                        Unique (one unit)
+                      </label>
+                      <label className="flex items-center gap-1.5 text-xs text-slate-600">
+                        <input type="radio" name="new-serial-mode" checked={newSerialMode === 'shared'} onChange={() => setNewSerialMode('shared')} className="accent-slate-900" />
+                        Shared group
+                      </label>
+                      {newSerialMode === 'shared' && (
+                        <Input label="Units in group" type="number" min="1" value={newSerialQty} onChange={(event) => setNewSerialQty(event.target.value)} className="w-28" />
+                      )}
+                    </div>
+                    {serialRegistryMsg && (
+                      <p className={`text-xs ${serialRegistryMsg.startsWith('"') ? 'text-emerald-600' : 'text-rose-600'}`}>{serialRegistryMsg}</p>
+                    )}
+                    <p className="text-[11px] text-slate-400">Registered serials stay in the product catalogue and can be selected for later sales.</p>
+                  </div>
+                )}
+              </div>
+
               <div className="grid gap-3 sm:grid-cols-3">
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">Qty{selectedProduct.unit ? ` (${selectedProduct.unit})` : ''}</label>

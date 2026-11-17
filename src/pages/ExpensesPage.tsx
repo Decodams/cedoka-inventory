@@ -8,7 +8,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Input, Select, Textarea } from '@/components/ui/Form';
 import { Badge } from '@/components/ui/Badge';
 import { formatCurrency, formatDate } from '@/lib/dateUtils';
-import { isAtLeast, hasRole } from '@/lib/rbac';
+import { isAtLeast, hasRole, accessibleBusinessIds, fullAccessibleBranchIds } from '@/lib/rbac';
 import { EXPENSE_STATUS_STYLES, EXPENSE_STATUS_LABELS } from '@/lib/statusStyles';
 import { logAudit } from '@/lib/audit';
 import type { OperationalExpense, Branch } from '@/types/database';
@@ -39,8 +39,7 @@ export function ExpensesPage() {
       .order('expense_date', { ascending: false })
       .order('created_at', { ascending: false })
       .limit(100);
-    if (!isExecutive && isBusinessLevel && user?.business_id) q = q.eq('business_id', user.business_id);
-    else if (!isBusinessLevel && user?.branch_id) q = q.eq('branch_id', user.branch_id);
+    if (!isExecutive) { const bizIds = accessibleBusinessIds(user); const branchIds = fullAccessibleBranchIds(user); if (isBusinessLevel && bizIds.length) q = q.in('business_id', bizIds); else if (branchIds.length) q = q.in('branch_id', branchIds); }
     if (filterBranch !== 'all') q = q.eq('branch_id', filterBranch);
     if (filterStatus !== 'all') q = q.eq('status', filterStatus);
     if (filterCategory !== 'all') q = q.eq('category', filterCategory);
@@ -72,14 +71,14 @@ export function ExpensesPage() {
         <Button onClick={()=>setShowModal(true)} className="w-full sm:w-auto"><Plus size={18}/>Record Expense</Button>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="bg-white rounded-2xl border border-slate-200 p-4">
           <p className="text-xs text-slate-400">Pending Approval</p>
-          <p className="text-xl font-bold text-amber-600 mt-1">{formatCurrency(totalPending)}</p>
+          <p className="text-xl font-bold text-amber-600 mt-1 truncate">{formatCurrency(totalPending)}</p>
         </div>
         <div className="bg-white rounded-2xl border border-slate-200 p-4">
           <p className="text-xs text-slate-400">Approved (filtered)</p>
-          <p className="text-xl font-bold text-emerald-600 mt-1">{formatCurrency(totalApproved)}</p>
+          <p className="text-xl font-bold text-emerald-600 mt-1 truncate">{formatCurrency(totalApproved)}</p>
         </div>
       </div>
 
@@ -188,3 +187,4 @@ function ExpenseModal({ branches, currentUser, onClose, onSaved }: { branches: B
     </Modal>
   );
 }
+

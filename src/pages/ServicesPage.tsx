@@ -8,12 +8,12 @@ import { Modal } from '@/components/ui/Modal';
 import { Input, Select, Textarea } from '@/components/ui/Form';
 import { Badge } from '@/components/ui/Badge';
 import { formatCurrency } from '@/lib/dateUtils';
-import { hasRole, isAtLeast } from '@/lib/rbac';
+import { hasRole, isAtLeast, canManageServices } from '@/lib/rbac';
 import type { Service, Business } from '@/types/database';
 
 export function ServicesPage() {
   const { user } = useAuth();
-  const canManage = isAtLeast(user, 'manager');
+  const canManage = canManageServices(user);
   const isExecutive = hasRole(user, 'super_admin');
   const [search, setSearch] = useState('');
   const [filterBusiness, setFilterBusiness] = useState('all');
@@ -139,3 +139,4 @@ function ServiceModal({ service, businesses, currentUser, onClose, onSaved }: { 
     </Modal>
   );
 }
+

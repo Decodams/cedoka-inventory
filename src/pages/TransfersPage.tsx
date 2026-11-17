@@ -9,7 +9,7 @@ import { Input, Select, Textarea } from '@/components/ui/Form';
 import { Badge } from '@/components/ui/Badge';
 import { formatDate } from '@/lib/dateUtils';
 import { logAudit } from '@/lib/audit';
-import { isAtLeast, hasRole } from '@/lib/rbac';
+import { isAtLeast, hasRole, canManageTransfers } from '@/lib/rbac';
 import { TRANSFER_STATUS_STYLES, TRANSFER_STATUS_LABELS } from '@/lib/statusStyles';
 import type { StockTransfer, Branch, Product, TransferStatus } from '@/types/database';
 
@@ -19,7 +19,7 @@ export function TransfersPage() {
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [viewTransfer, setViewTransfer] = useState<StockTransfer | null>(null);
-  const canManage = isAtLeast(user, 'manager');
+  const canManage = canManageTransfers(user);
   const [page, setPage] = useState(1);
   const pageSize = 10;
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -168,6 +168,12 @@ export function TransfersPage() {
                   {canManage && t.status === 'approved' && sideOk(t, 'dispatched') && (
                     <Button variant="ghost" size="sm" disabled={busyId === t.id} onClick={() => advanceStatus(t, 'dispatched')}>Dispatch</Button>
                   )}
+                  {canManage && ['requested','reviewed','approved'].includes(t.status) && sideOk(t, 'rejected') && (
+                    <Button variant="ghost" size="sm" disabled={busyId === t.id} onClick={() => { if (window.confirm('Reject this transfer?')) void advanceStatus(t, 'rejected'); }}>Reject</Button>
+                  )}
+                  {canManage && t.status === 'dispatched' && sideOk(t, 'in_transit') && (
+                    <Button variant="ghost" size="sm" disabled={busyId === t.id} onClick={() => advanceStatus(t, 'in_transit')}>In Transit</Button>
+                  )}
                   {canManage && (t.status === 'dispatched' || t.status === 'in_transit') && sideOk(t, 'received') && (
                     <Button variant="ghost" size="sm" disabled={busyId === t.id} onClick={() => advanceStatus(t, 'received')}>{busyId === t.id ? 'Working…' : 'Mark Received'}</Button>
                   )}
@@ -301,7 +307,13 @@ function TransferModal({
     if (e || !tr) { setError('Could not create the transfer. ' + (e?.message ?? '')); setSaving(false); return; }
     const itemsToInsert = validItems.map((it) => ({ transfer_id: tr.id, product_id: it.product_id, quantity: Number(it.quantity), received_quantity: 0 }));
     const { error: ie } = await supabase.from('stock_transfer_items').insert(itemsToInsert);
-    if (ie) { setError('Transfer created but items failed: ' + ie.message); }
+    if (ie) {
+      // Roll back the header so no empty "requested" transfer is left behind.
+      await supabase.from('stock_transfers').delete().eq('id', tr.id);
+      setError('Could not save the transfer items: ' + ie.message);
+      setSaving(false);
+      return;
+    }
     await logAudit('transfer.created', 'stock_transfers', tr.id, {
       from_branch_id: fromBranchId,
       to_branch_id: toBranchId,
@@ -399,3 +411,4 @@ function TransferDetailModal({ transfer, onClose }: { transfer: StockTransfer; o
     </Modal>
   );
 }
+

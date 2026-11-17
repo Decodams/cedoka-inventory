@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { Input, Select, Textarea } from '@/components/ui/Form';
 import { Badge } from '@/components/ui/Badge';
-import { hasRole, isAtLeast } from '@/lib/rbac';
+import { hasRole, isAtLeast, accessibleBusinessIds } from '@/lib/rbac';
 import type { Workflow, Business } from '@/types/database';
 
 export function WorkflowsPage() {
@@ -23,11 +23,11 @@ export function WorkflowsPage() {
   const { data: workflows, loading, error, refetch } = useSupabaseQuery<Workflow[]>(
     () => {
       let q = supabase.from('workflows').select(`*, business:businesses(id,name)`).order('created_at', { ascending: false });
-      if (!isExecutive && user?.business_id) q = q.or(`business_id.is.null,business_id.eq.${user.business_id}`);
+      if (!isExecutive) { const ids = accessibleBusinessIds(user); if (ids.length) q = q.or(`business_id.is.null,business_id.in.(${ids.join(",")})`); }
       if (filterBusiness !== 'all') q = q.eq('business_id', filterBusiness);
       return q;
     },
-    [filterBusiness, user?.business_id, isExecutive]
+    [filterBusiness, user, isExecutive]
   );
 
   const filtered = useMemo(() => {
@@ -160,3 +160,4 @@ function WorkflowModal({ workflow, businesses, currentUser, onClose, onSaved }: 
     </Modal>
   );
 }
+

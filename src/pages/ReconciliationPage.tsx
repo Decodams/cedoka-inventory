@@ -7,8 +7,8 @@ import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { Input, Select, Textarea } from '@/components/ui/Form';
 import { Badge } from '@/components/ui/Badge';
-import { formatNumber, formatDate, getWeekStart, getWeekEnd, toDateString } from '@/lib/dateUtils';
-import { isAtLeast, hasRole } from '@/lib/rbac';
+import { formatNumber, formatDate, getSalesWeekStart, getSalesWeekEnd, toDateString } from '@/lib/dateUtils';
+import { isAtLeast, hasRole, canManageInventory } from '@/lib/rbac';
 import { PERIOD_STATUS_STYLES, PERIOD_STATUS_LABELS, VARIANCE_STATUS_STYLES } from '@/lib/statusStyles';
 import { logAudit } from '@/lib/audit';
 import type { InventoryPeriod, InventoryPeriodLine, StockVariance, Branch, Product, Business } from '@/types/database';
@@ -16,7 +16,7 @@ import type { InventoryPeriod, InventoryPeriodLine, StockVariance, Branch, Produ
 /* ——— Main Page ——— */
 export function ReconciliationPage() {
   const { user } = useAuth();
-  const canManage = isAtLeast(user, 'manager');
+  const canManage = canManageInventory(user);
   const isExecutive = hasRole(user, 'super_admin');
   const isBusinessLevel = isAtLeast(user, 'admin');
 
@@ -146,7 +146,7 @@ export function ReconciliationPage() {
 function NewPeriodModal({ branches, currentUser, onClose, onSaved }: { branches: Branch[]; currentUser: { id: string; role?: { name: string }; business_id: string | null; branch_id: string | null } | null; onClose: () => void; onSaved: () => void; }) {
   const isManager = currentUser?.role?.name === 'manager' || currentUser?.role?.name === 'sales_person';
   const [branchId, setBranchId] = useState(currentUser?.branch_id ?? '');
-  const [periodEnd, setPeriodEnd] = useState(toDateString(getWeekEnd(new Date())));
+  const [periodEnd, setPeriodEnd] = useState(toDateString(getSalesWeekEnd(new Date())));
   const [products, setProducts] = useState<Product[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -169,7 +169,7 @@ function NewPeriodModal({ branches, currentUser, onClose, onSaved }: { branches:
     const br = branches.find((b) => b.id === branchId);
     if (!br) { setError('Invalid branch'); return; }
     setSaving(true); setError(null);
-    const ws = toDateString(getWeekStart(new Date(periodEnd)));
+    const ws = toDateString(getSalesWeekStart(new Date(`${periodEnd}T12:00:00`)));
     const we = periodEnd;
     // derive business_id from branch
     // check duplicate
@@ -218,7 +218,7 @@ function NewPeriodModal({ branches, currentUser, onClose, onSaved }: { branches:
           {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
         </Select>
         <Input label="Week Ending (Saturday)" type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} />
-        <p className="text-xs text-slate-400">Week start will be auto-derived as Sunday. Opening stock per product is carried forward from the prior approved period.</p>
+        <p className="text-xs text-slate-400">Week start is auto-derived as Monday (Mon–Sat cycle, matching weekly reports). Opening stock per product is carried forward from the prior period.</p>
         {error && <p className="text-sm text-rose-600">{error}</p>}
         <div className="flex justify-end gap-3 pt-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
@@ -236,7 +236,7 @@ function PeriodDetailView({ period, onBack, onRefresh }: { period: InventoryPeri
   const [showVarianceModal, setShowVarianceModal] = useState<InventoryPeriodLine | null>(null);
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const canManage = isAtLeast(user, 'manager');
+  const canManage = canManageInventory(user);
   const canApprove = isAtLeast(user, 'admin');
 
   const { data: lines, loading, error, refetch } = useSupabaseQuery<InventoryPeriodLine[]>(
@@ -544,3 +544,4 @@ function AddProductLineModal({ period, existingIds, onClose, onSaved }: { period
     </Modal>
   );
 }
+

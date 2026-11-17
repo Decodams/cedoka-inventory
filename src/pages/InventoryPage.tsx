@@ -8,7 +8,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Input, Select, Textarea } from '@/components/ui/Form';
 import { Badge } from '@/components/ui/Badge';
 import { formatNumber, formatDateTime } from '@/lib/dateUtils';
-import { isAtLeast, hasRole } from '@/lib/rbac';
+import { isAtLeast, hasRole, canManageInventory } from '@/lib/rbac';
 import { MOVEMENT_TYPE_STYLES, MOVEMENT_TYPE_LABELS, MOVEMENT_TYPE_SIGNS } from '@/lib/statusStyles';
 import { logAudit } from '@/lib/audit';
 import type { InventoryBalance, InventoryTransaction, Branch, MovementType, Product, InventoryAsset, InventoryAssetMovement, AssetType, AssetStatus, AssetCondition } from '@/types/database';
@@ -22,7 +22,7 @@ export function InventoryPage() {
   const [showAssetModal, setShowAssetModal] = useState(false);
   const [editingAsset, setEditingAsset] = useState<InventoryAsset | null>(null);
   const [viewAsset, setViewAsset] = useState<InventoryAsset | null>(null);
-  const canManage = isAtLeast(user, 'manager');
+  const canManage = canManageInventory(user);
   const isBusinessLevel = isAtLeast(user, 'admin');
   const [page, setPage] = useState(1);
   const pageSize = 10;
@@ -646,3 +646,4 @@ function MovementModal({
     </Modal>
   );
 }
+

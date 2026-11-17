@@ -65,7 +65,7 @@ export function Modal({ open, onClose, title, children, size = 'md' }: ModalProp
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors shrink-0"
+            className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg p-2.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors shrink-0"
           >
             <X size={20} />
           </button>

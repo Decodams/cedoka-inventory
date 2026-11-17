@@ -1,7 +1,7 @@
 import { useState, lazy, Suspense } from 'react';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { LoginPage } from '@/pages/LoginPage';
-import { AppShell, type PageKey } from '@/components/AppShell';
+import { AppShell, canAccessPage, type PageKey } from '@/components/AppShell';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { NotFoundPage } from '@/components/NotFoundPage';
 import { LoadingState } from '@/components/ui/States';
@@ -27,6 +27,7 @@ const CustomersPage = lazy(() => import('@/pages/CustomersPage').then(m => ({ de
 const ServicesPage = lazy(() => import('@/pages/ServicesPage').then(m => ({ default: m.ServicesPage })));
 const LocationsPage = lazy(() => import('@/pages/LocationsPage').then(m => ({ default: m.LocationsPage })));
 const WorkflowsPage = lazy(() => import('@/pages/WorkflowsPage').then(m => ({ default: m.WorkflowsPage })));
+const ReportTypesPage = lazy(() => import('@/pages/ReportTypesPage').then(m => ({ default: m.ReportTypesPage })));
 
 const PAGE_STORAGE_KEY = 'cedoka:page';
 
@@ -35,7 +36,7 @@ const ALL_PAGES: PageKey[] = [
   'inventory', 'issues', 'activities', 'transfers', 'procurement', 'sales',
   'quotations',
   'expenses', 'departments', 'teams', 'customers', 'services', 'locations',
-  'workflows', 'audit',
+  'workflows', 'report-types', 'audit',
 ];
 
 function loadSavedPage(): PageKey {
@@ -77,8 +78,14 @@ function AppContent() {
     return <LoginPage />;
   }
 
+  // Enforce the same role rules the nav uses: a persisted/injected page key
+  // must never render an admin screen for a lower-privileged user (RLS still
+  // protects data, but the UI must not expose the surface either).
+  const roleName = user.role?.name ?? null;
+  const activePage: PageKey = canAccessPage(roleName, currentPage) ? currentPage : 'dashboard';
+
   const renderPage = () => {
-    switch (currentPage) {
+    switch (activePage) {
       case 'dashboard':
         return <DashboardPage />;
       case 'businesses':
@@ -119,6 +126,8 @@ function AppContent() {
         return <LocationsPage />;
       case 'workflows':
         return <WorkflowsPage />;
+      case 'report-types':
+        return <ReportTypesPage />;
       case 'audit':
         return <AuditLogPage />;
       default:
@@ -127,7 +136,7 @@ function AppContent() {
   };
 
   return (
-    <AppShell currentPage={currentPage} onPageChange={goToPage}>
+    <AppShell currentPage={activePage} onPageChange={goToPage}>
       <Suspense fallback={<div className="p-8 flex justify-center"><LoadingState message="Loading page..." /></div>}>
         {renderPage()}
       </Suspense>

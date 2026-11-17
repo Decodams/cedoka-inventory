@@ -8,7 +8,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Input, Select, Textarea } from '@/components/ui/Form';
 import { Badge } from '@/components/ui/Badge';
 import { formatCurrency, formatDate, formatDateTime } from '@/lib/dateUtils';
-import { isAtLeast, hasRole } from '@/lib/rbac';
+import { isAtLeast, hasRole, canManageProducts } from '@/lib/rbac';
 import { isFarmBusiness, unitOptionsFor } from '@/lib/business';
 import { edgeErrorMessage } from '@/lib/edge';
 import { logAudit } from '@/lib/audit';
@@ -23,7 +23,7 @@ export function ProductsPage() {
   const [filterBusiness, setFilterBusiness] = useState('all');
   const [notice, setNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const canManage = isAtLeast(user, 'manager');
+  const canManage = canManageProducts(user);
   const canManageCategories = hasRole(user, 'super_admin') || hasRole(user, 'admin') || isAtLeast(user, 'manager');
   const canDeleteProduct = hasRole(user, 'super_admin') || hasRole(user, 'admin');
 
@@ -1622,3 +1622,4 @@ function ProductFormModal({
     </Modal>
   );
 }
+

@@ -39,7 +39,7 @@ export function ChipSelect({
       <div className="flex items-center justify-between gap-2">
         <label className="block text-sm font-medium text-slate-700">{label}</label>
         {selected.length > 0 && (
-          <button type="button" onClick={() => onChange([])} className="text-xs text-slate-400 hover:text-slate-600">
+          <button type="button" onClick={() => onChange([])} className="min-h-[44px] px-2 text-xs text-slate-400 hover:text-slate-600">
             Clear all
           </button>
         )}
@@ -55,7 +55,7 @@ export function ChipSelect({
               type="button"
               aria-pressed={active}
               onClick={() => toggle(option.id)}
-              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium border transition-colors ${
+              className={`inline-flex min-h-[44px] items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium border transition-colors ${
                 active ? `${activeClass} border-transparent` : 'border-slate-300 text-slate-600 hover:bg-slate-50'
               }`}
             >

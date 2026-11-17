@@ -8,7 +8,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Input, Select, Textarea } from '@/components/ui/Form';
 import { Badge } from '@/components/ui/Badge';
 import { formatCurrency, formatDate } from '@/lib/dateUtils';
-import { isAtLeast, hasRole } from '@/lib/rbac';
+import { isAtLeast, hasRole, canManageProcurement } from '@/lib/rbac';
 import { PURCHASE_STATUS_STYLES, PURCHASE_STATUS_LABELS } from '@/lib/statusStyles';
 import { logAudit } from '@/lib/audit';
 import type { PurchaseRequest, Business, Branch, Supplier, PurchaseStatus, Product } from '@/types/database';
@@ -20,7 +20,7 @@ export function ProcurementPage() {
   const [filterStatus, setFilterStatus] = useState('all');
   const [grnPurchase, setGrnPurchase] = useState<PurchaseRequest | null>(null);
   const [viewGRNs, setViewGRNs] = useState<PurchaseRequest | null>(null);
-  const canManage = isAtLeast(user, 'manager');
+  const canManage = canManageProcurement(user);
   const isExecutive = hasRole(user, 'super_admin');
   const isBusinessLevel = isAtLeast(user, 'admin');
   const [page, setPage] = useState(1);
@@ -135,7 +135,7 @@ export function ProcurementPage() {
         <div className="space-y-3">
           {pageRows.map((p) => (
             <div key={p.id} className="bg-white rounded-2xl border border-slate-200 p-5">
-              <div className="flex items-start justify-between gap-4">
+              <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                 <div className="flex items-start gap-3 min-w-0 flex-1">
                   <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">
                     <ShoppingCart size={20} />
@@ -159,6 +159,7 @@ export function ProcurementPage() {
                     {p.notes && <p className="text-sm text-slate-500 mt-1.5 line-clamp-2">{p.notes}</p>}
                   </div>
                 </div>
+                <div className="flex flex-wrap items-center gap-2 self-end sm:justify-end">
                 {canManage && p.status === 'requested' && (
                   <Button
                     variant="ghost"
@@ -202,6 +203,7 @@ export function ProcurementPage() {
                     Complete
                   </Button>
                 )}
+                </div>
               </div>
             </div>
           ))}
@@ -464,3 +466,4 @@ function PurchaseModal({
     </Modal>
   );
 }
+

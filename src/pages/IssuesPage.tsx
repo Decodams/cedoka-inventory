@@ -8,7 +8,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Input, Select, Textarea } from '@/components/ui/Form';
 import { Badge } from '@/components/ui/Badge';
 import { formatDate, daysUntil, isOverdue } from '@/lib/dateUtils';
-import { isAtLeast, hasRole } from '@/lib/rbac';
+import { isAtLeast, hasRole, accessibleBusinessIds, fullAccessibleBranchIds } from '@/lib/rbac';
 import {
   ISSUE_STATUS_STYLES, ISSUE_STATUS_LABELS,
   ISSUE_PRIORITY_STYLES, ISSUE_PRIORITY_LABELS,
@@ -45,10 +45,11 @@ export function IssuesPage() {
       .from('issues')
       .select(`*, business:businesses(id,name), branch:branches(id,name), reported_by_user:user_profiles!reported_by(full_name), responsible_person_user:user_profiles!responsible_person(full_name)`)
       .order('created_at', { ascending: false });
-    if (!isExecutive && isBusinessLevel && user?.business_id) {
-      q = q.eq('business_id', user.business_id);
-    } else if (!isBusinessLevel && user?.branch_id) {
-      q = q.eq('branch_id', user.branch_id);
+    if (!isExecutive) {
+      const bizIds = accessibleBusinessIds(user);
+      const branchIds = fullAccessibleBranchIds(user);
+      if (isBusinessLevel && bizIds.length) q = q.in('business_id', bizIds);
+      else if (branchIds.length) q = q.in('branch_id', branchIds);
     }
     if (filterStatus !== 'all') q = q.eq('status', filterStatus);
     if (filterPriority !== 'all') q = q.eq('priority', filterPriority);
@@ -322,3 +323,4 @@ function IssueFormModal({
     </Modal>
   );
 }
+

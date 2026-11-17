@@ -8,7 +8,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Input, Select, Textarea } from '@/components/ui/Form';
 import { Badge } from '@/components/ui/Badge';
 import { formatDate } from '@/lib/dateUtils';
-import { isAtLeast } from '@/lib/rbac';
+import { isAtLeast, fullAccessibleBranchIds } from '@/lib/rbac';
 import { ACTIVITY_CATEGORY_LABELS } from '@/lib/statusStyles';
 import type { DailyActivity, Branch, ActivityCategory } from '@/types/database';
 
@@ -32,7 +32,7 @@ export function ActivitiesPage() {
       .order('activity_date', { ascending: false })
       .order('created_at', { ascending: false })
       .limit(100);
-    if (!isBusinessLevel && user?.branch_id) q = q.eq('branch_id', user.branch_id);
+    if (!isBusinessLevel) { const ids = fullAccessibleBranchIds(user); if (ids.length) q = q.in('branch_id', ids); }
     if (filterBranch !== 'all') q = q.eq('branch_id', filterBranch);
     return q;
   }, [isBusinessLevel, user, filterBranch]);
@@ -220,3 +220,4 @@ function ActivityModal({
     </Modal>
   );
 }
+

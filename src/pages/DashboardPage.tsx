@@ -358,8 +358,9 @@ export function DashboardPage() {
     if (!isSalesPerson) {
       const weekMap = new Map<string, { sales: number; purchases: number; sold: number }>();
       weeklyReports?.forEach((r) => {
-        const start = new Date(r.week_start_date);
-        const key = `${start.getFullYear()}-W${Math.ceil(start.getDate() / 7)}`;
+        // Use the actual Monday date as the key — the old month-based week
+        // number collided across months and reordered bars.
+        const key = r.week_start_date;
         const existing = weekMap.get(key) ?? { sales: 0, purchases: 0, sold: 0 };
         existing.sales += Number(r.total_sales_value);
         existing.purchases += Number(r.total_purchase_value);
@@ -404,15 +405,15 @@ export function DashboardPage() {
             {isSuperAdmin && ` — ${totalBusinesses} businesses, ${totalBranches} branches, ${totalStaff} staff`}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {canSplitScope && (
-            <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 text-xs font-medium" role="group" aria-label="Records scope">
+            <div className="inline-flex max-w-full overflow-x-auto rounded-lg border border-slate-200 bg-white p-0.5 text-xs font-medium" role="group" aria-label="Records scope">
               {([['mine', 'My Records'], ['overseen', `Overseen (${overseenBranchIds.length})`], ['all', 'All']] as const).map(([mode, label]) => (
                 <button
                   key={mode}
                   type="button"
                   onClick={() => setScopeMode(mode)}
-                  className={`px-3 py-1.5 rounded-md transition-colors ${scopeMode === mode ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                  className={`min-h-[36px] whitespace-nowrap px-3 py-1.5 rounded-md transition-colors ${scopeMode === mode ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
                 >
                   {label}
                 </button>
@@ -420,7 +421,7 @@ export function DashboardPage() {
             </div>
           )}
           <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 capitalize">{user?.role?.display_name}</Badge>
-          <span className="text-xs text-slate-400">{formatDate(new Date().toISOString())}</span>
+          <span className="hidden text-xs text-slate-400 sm:inline">{formatDate(new Date().toISOString())}</span>
         </div>
       </div>
 

@@ -53,6 +53,7 @@ export type PageKey =
   | 'services'
   | 'locations'
   | 'workflows'
+  | 'report-types'
   | 'audit';
 
 interface NavItem {
@@ -86,6 +87,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'teams', label: 'Teams', icon: Users, visible: (r) => r === 'super_admin' || r === 'admin', section: 'organization' },
   { key: 'locations', label: 'Locations', icon: MapPin, visible: (r) => r === 'super_admin' || r === 'admin', section: 'organization' },
   { key: 'workflows', label: 'Workflows', icon: GitBranch, visible: (r) => r === 'super_admin' || r === 'admin', section: 'organization' },
+  { key: 'report-types', label: 'Report Types', icon: FileText, visible: (r) => r === 'super_admin' || r === 'admin', section: 'organization' },
   { key: 'users', label: 'User Management', icon: Users, visible: (r) => r === 'super_admin' || r === 'admin' || r === 'manager', section: 'organization' },
   { key: 'audit', label: 'Audit Log', icon: FileText, visible: (r) => r === 'super_admin' || r === 'admin', section: 'organization' },
 ];
@@ -95,6 +97,12 @@ const SECTION_LABELS: Record<NavItem['section'], string> = {
   catalog: 'Catalog',
   organization: 'Organization',
 };
+
+/** Single source of truth for page access — used by both the nav and the route guard. */
+export function canAccessPage(role: RoleName | null, page: PageKey): boolean {
+  const item = NAV_ITEMS.find((i) => i.key === page);
+  return item ? item.visible(role) : false;
+}
 
 interface AppShellProps {
   currentPage: PageKey;

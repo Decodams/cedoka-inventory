@@ -180,28 +180,41 @@ export function canViewAllReports(actor: UserProfile | null): boolean {
   return isAtLeast(actor, 'admin');
 }
 
+// Capability checks use EXPLICIT role sets, never numeric isAtLeast():
+// specialist roles are peers at level 1, so a numeric >= would wrongly grant
+// them each other's powers (e.g. a sales_person getting inventory.adjust).
+// These sets mirror the role_permissions seed in the database.
+
 // CHECK IF ACTOR CAN MANAGE PRODUCTS
 export function canManageProducts(actor: UserProfile | null): boolean {
-  return isAtLeast(actor, 'manager');
+  return hasRole(actor, 'super_admin', 'admin', 'manager', 'inventory_officer');
+}
+
+// CHECK IF ACTOR CAN MANAGE CUSTOMERS / SERVICES (same surface as products)
+export function canManageCustomers(actor: UserProfile | null): boolean {
+  return canManageProducts(actor);
+}
+export function canManageServices(actor: UserProfile | null): boolean {
+  return canManageProducts(actor);
 }
 
 // CHECK IF ACTOR CAN MANAGE INVENTORY
 export function canManageInventory(actor: UserProfile | null): boolean {
-  return isAtLeast(actor, 'manager');
+  return hasRole(actor, 'super_admin', 'admin', 'manager', 'inventory_officer', 'farm_operations_officer');
 }
 
 export function canAdjustStock(actor: UserProfile | null): boolean {
-  return isAtLeast(actor, 'inventory_officer') || isAtLeast(actor, 'manager') || isAtLeast(actor, 'farm_operations_officer');
+  return hasRole(actor, 'super_admin', 'admin', 'manager', 'inventory_officer', 'farm_operations_officer');
 }
 
 // CHECK IF ACTOR CAN MANAGE TRANSFERS
 export function canManageTransfers(actor: UserProfile | null): boolean {
-  return isAtLeast(actor, 'manager');
+  return hasRole(actor, 'super_admin', 'admin', 'manager', 'inventory_officer', 'transport_officer');
 }
 
 // CHECK IF ACTOR CAN MANAGE PROCUREMENT
 export function canManageProcurement(actor: UserProfile | null): boolean {
-  return isAtLeast(actor, 'manager');
+  return hasRole(actor, 'super_admin', 'admin', 'manager', 'inventory_officer', 'accountant');
 }
 
 // CHECK IF ACTOR CAN VIEW EXECUTIVE DASHBOARD
@@ -221,27 +234,27 @@ export function canViewBranchDashboard(actor: UserProfile | null): boolean {
 
 // CHECK IF ACTOR CAN VIEW INVENTORY DASHBOARDS
 export function canViewInventoryDashboards(actor: UserProfile | null): boolean {
-  return isAtLeast(actor, 'inventory_officer') || isAtLeast(actor, 'manager') || isAtLeast(actor, 'farm_operations_officer') || isAtLeast(actor, 'admin') || isAtLeast(actor, 'super_admin');
+  return hasRole(actor, 'super_admin', 'admin', 'manager', 'inventory_officer', 'farm_operations_officer', 'auditor');
 }
 
 // CHECK IF ACTOR CAN VIEW FINANCIAL REPORTS
 export function canViewFinancialReports(actor: UserProfile | null): boolean {
-  return isAtLeast(actor, 'accountant') || isAtLeast(actor, 'admin') || isAtLeast(actor, 'super_admin');
+  return hasRole(actor, 'super_admin', 'admin', 'accountant', 'auditor');
 }
 
 // CHECK IF ACTOR CAN MANAGE TRANSPORTS
 export function canManageTransports(actor: UserProfile | null): boolean {
-  return isAtLeast(actor, 'transport_officer') || isAtLeast(actor, 'manager') || isAtLeast(actor, 'admin') || isAtLeast(actor, 'super_admin');
+  return hasRole(actor, 'super_admin', 'admin', 'manager', 'transport_officer');
 }
 
 // CHECK IF ACTOR CAN VIEW TRANSPORT DASHBOARDS
 export function canViewTransportDashboards(actor: UserProfile | null): boolean {
-  return isAtLeast(actor, 'transport_officer') || isAtLeast(actor, 'manager') || isAtLeast(actor, 'admin') || isAtLeast(actor, 'super_admin');
+  return hasRole(actor, 'super_admin', 'admin', 'manager', 'transport_officer', 'auditor');
 }
 
 // CHECK IF ACTOR CAN VIEW FARM DASHBOARDS
 export function canViewFarmDashboards(actor: UserProfile | null): boolean {
-  return isAtLeast(actor, 'farm_operations_officer') || isAtLeast(actor, 'manager') || isAtLeast(actor, 'admin') || isAtLeast(actor, 'super_admin');
+  return hasRole(actor, 'super_admin', 'admin', 'manager', 'farm_operations_officer', 'auditor');
 }
 
 // CHECK IF ACTOR CAN VIEW READ-ONLY MODULES

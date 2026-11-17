@@ -7,12 +7,12 @@ import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { Input, Select, Textarea } from '@/components/ui/Form';
 import { Badge } from '@/components/ui/Badge';
-import { hasRole, isAtLeast } from '@/lib/rbac';
+import { hasRole, isAtLeast, canManageCustomers } from '@/lib/rbac';
 import type { Customer, Business } from '@/types/database';
 
 export function CustomersPage() {
   const { user } = useAuth();
-  const canManage = isAtLeast(user, 'manager');
+  const canManage = canManageCustomers(user);
   const isExecutive = hasRole(user, 'super_admin');
   const [search, setSearch] = useState('');
   const [filterBusiness, setFilterBusiness] = useState('all');
@@ -338,3 +338,4 @@ function CustomerModal({
     </Modal>
   );
 }
+

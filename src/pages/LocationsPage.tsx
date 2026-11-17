@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { Input, Select, Textarea } from '@/components/ui/Form';
 import { Badge } from '@/components/ui/Badge';
-import { hasRole, isAtLeast } from '@/lib/rbac';
+import { hasRole, isAtLeast, accessibleBusinessIds } from '@/lib/rbac';
 import type { Location, Business, Branch } from '@/types/database';
 
 const TYPE_LABELS: Record<string, string> = { warehouse: 'Warehouse', store: 'Store', office: 'Office', branch: 'Branch', inventory: 'Inventory', other: 'Other' };
@@ -27,11 +27,11 @@ export function LocationsPage() {
   const { data: locations, loading, error, refetch } = useSupabaseQuery<Location[]>(
     () => {
       let q = supabase.from('locations').select(`*, business:businesses(id,name), branch:branches(id,name)`).order('created_at', { ascending: false });
-      if (!isExecutive && user?.business_id) q = q.eq('business_id', user.business_id);
+      if (!isExecutive) { const ids = accessibleBusinessIds(user); if (ids.length) q = q.in('business_id', ids); }
       if (filterBusiness !== 'all') q = q.eq('business_id', filterBusiness);
       return q;
     },
-    [filterBusiness, user?.business_id, isExecutive]
+    [filterBusiness, user, isExecutive]
   );
 
   const filtered = useMemo(() => {
@@ -141,3 +141,4 @@ function LocationModal({ location, businesses, branches, currentUser, onClose, o
     </Modal>
   );
 }
+

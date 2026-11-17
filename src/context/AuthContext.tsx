@@ -137,6 +137,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // INITIAL_SESSION duplicates the getSession() bootstrap above — ignore it
       // so the profile + roles are fetched once, not twice, on every app load.
       if (event === 'INITIAL_SESSION') return;
+      if (event === 'SIGNED_IN') {
+        // Never let a previous account's cached data appear for this one.
+        clearQueryCache();
+      }
       if (event === 'SIGNED_OUT') {
         clearQueryCache();
         if (mounted) {
@@ -250,7 +254,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (timeoutId !== undefined) window.clearTimeout(timeoutId);
       timeoutId = window.setTimeout(() => {
         void signOut();
-      }, 120_000);
+      }, 30 * 60_000); // 30-minute idle timeout (was 2 min — far too aggressive)
     };
     const activityEvents = ['mousedown', 'keydown', 'mousemove', 'scroll', 'touchstart'];
     activityEvents.forEach((event) => window.addEventListener(event, resetInactivityTimer));
@@ -263,22 +267,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [session?.user?.id, signOut]);
 
   useEffect(() => {
-    if (!session?.user?.id) return;
-
-    const lockWhenLeavingApp = () => {
-      if (document.visibilityState === 'hidden') {
-        void signOut();
-      }
-    };
-
-    document.addEventListener('visibilitychange', lockWhenLeavingApp);
-    window.addEventListener('pagehide', lockWhenLeavingApp);
-
-    return () => {
-      document.removeEventListener('visibilitychange', lockWhenLeavingApp);
-      window.removeEventListener('pagehide', lockWhenLeavingApp);
-    };
-  }, [session?.user?.id, signOut]);
+    // Do NOT sign the user out when they switch tabs or minimise the browser —
+    // that destroyed in-progress work. Session expiry is handled by the idle
+    // timer above and by Supabase's own token refresh.
+    return;
+  }, []);
 
   return (
     <AuthContext.Provider value={{ session, user, roles, loading, signIn, registerStaff, changePassword, signOut, refreshUser }}>

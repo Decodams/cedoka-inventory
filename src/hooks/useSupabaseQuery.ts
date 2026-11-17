@@ -156,7 +156,12 @@ export function useSupabaseQuery<T>(
           setError(null);
           setData(result.data as T | null);
           setCount(typeof result.count === 'number' ? result.count : null);
-          if (key) queryCache.set(key, { data: result.data, count: typeof result.count === 'number' ? result.count : null, at: Date.now() });
+          // Only cache if this request is still the current one. A mutation may
+          // have called clearQueryCache() while this was in flight; writing an
+          // old response back would resurrect stale data.
+          if (key && inflight.get(key) === request) {
+            queryCache.set(key, { data: result.data, count: typeof result.count === 'number' ? result.count : null, at: Date.now() });
+          }
         }
         setLoading(false);
       })

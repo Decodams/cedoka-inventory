@@ -29,6 +29,26 @@ export function NotificationBell({ onGoToReports }: { onGoToReports: () => void 
 
   const unreadCount = notifications?.filter((n) => !n.read_at).length ?? 0;
 
+  // Keep the bell live while the app stays open (realtime insert + tab focus).
+  useEffect(() => {
+    if (!user?.id) return;
+    const channel = supabase
+      .channel(`notifications:${user.id}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'notifications',
+        filter: `user_id=eq.${user.id}`,
+      }, () => void refetch())
+      .subscribe();
+    const onVisible = () => { if (document.visibilityState === 'visible') void refetch(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      void supabase.removeChannel(channel);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [user?.id, refetch]);
+
   useEffect(() => {
     const onClick = (event: MouseEvent) => {
       if (panel.current && !panel.current.contains(event.target as Node)) setOpen(false);
@@ -79,7 +99,7 @@ export function NotificationBell({ onGoToReports }: { onGoToReports: () => void 
               <button
                 onClick={() => void markAllRead()}
                 disabled={marking}
-                className="text-xs font-medium text-emerald-600 hover:text-emerald-700 flex items-center gap-1 disabled:opacity-50"
+                className="min-h-[44px] px-2 text-xs font-medium text-emerald-600 hover:text-emerald-700 flex items-center gap-1 disabled:opacity-50"
               >
                 <Check size={12} /> Mark all read
               </button>
