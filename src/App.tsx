@@ -25,6 +25,7 @@ const DepartmentsPage = lazy(() => import('@/pages/DepartmentsPage').then(m => (
 const TeamsPage = lazy(() => import('@/pages/TeamsPage').then(m => ({ default: m.TeamsPage })));
 const CustomersPage = lazy(() => import('@/pages/CustomersPage').then(m => ({ default: m.CustomersPage })));
 const ServicesPage = lazy(() => import('@/pages/ServicesPage').then(m => ({ default: m.ServicesPage })));
+const SuppliersPage = lazy(() => import('@/pages/SuppliersPage').then(m => ({ default: m.SuppliersPage })));
 const LocationsPage = lazy(() => import('@/pages/LocationsPage').then(m => ({ default: m.LocationsPage })));
 const WorkflowsPage = lazy(() => import('@/pages/WorkflowsPage').then(m => ({ default: m.WorkflowsPage })));
 const ReportTypesPage = lazy(() => import('@/pages/ReportTypesPage').then(m => ({ default: m.ReportTypesPage })));
@@ -35,7 +36,7 @@ const ALL_PAGES: PageKey[] = [
   'dashboard', 'businesses', 'users', 'reports', 'reconciliation', 'products',
   'inventory', 'issues', 'activities', 'transfers', 'procurement', 'sales',
   'quotations',
-  'expenses', 'departments', 'teams', 'customers', 'services', 'locations',
+  'expenses', 'departments', 'teams', 'customers', 'services', 'suppliers', 'locations',
   'workflows', 'report-types', 'audit',
 ];
 
@@ -122,6 +123,8 @@ function AppContent() {
         return <CustomersPage />;
       case 'services':
         return <ServicesPage />;
+      case 'suppliers':
+        return <SuppliersPage />;
       case 'locations':
         return <LocationsPage />;
       case 'workflows':

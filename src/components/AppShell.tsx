@@ -23,6 +23,7 @@ import {
   GitBranch,
   MapPin,
   WifiOff,
+  Truck,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { InstallAppButton } from '@/components/InstallAppButton';
@@ -51,6 +52,7 @@ export type PageKey =
   | 'teams'
   | 'customers'
   | 'services'
+  | 'suppliers'
   | 'locations'
   | 'workflows'
   | 'report-types'
@@ -81,6 +83,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'products', label: 'Products', icon: Package, visible: () => true, section: 'catalog' },
   { key: 'services', label: 'Services', icon: Wrench, visible: () => true, section: 'catalog' },
   { key: 'customers', label: 'Customers', icon: Users, visible: () => true, section: 'catalog' },
+  { key: 'suppliers', label: 'Suppliers', icon: Truck, visible: (r) => r !== 'sales_person', section: 'catalog' },
   // Organization
   { key: 'businesses', label: 'Businesses & Branches', icon: Building2, visible: (r) => r === 'super_admin' || r === 'admin', section: 'organization' },
   { key: 'departments', label: 'Departments', icon: Layers, visible: (r) => r === 'super_admin' || r === 'admin', section: 'organization' },

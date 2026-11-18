@@ -21,6 +21,9 @@ export function SaleDetailModal({ saleId, onClose }: { saleId: string; onClose: 
   const { downloadReceipt, printReceipt } = useReceiptPDF();
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [showReturn, setShowReturn] = useState(false);
+  const [returnReason, setReturnReason] = useState('');
+  const [returnStatus, setReturnStatus] = useState<'returned' | 'refunded'>('returned');
 
   const { data: sale, loading, error, refetch } = useSupabaseQuery<SaleDetail>(
     () => supabase
@@ -42,6 +45,23 @@ export function SaleDetailModal({ saleId, onClose }: { saleId: string; onClose: 
       setActionError(e instanceof Error ? e.message : 'Could not load the receipt.');
     }
     setBusy(false);
+  };
+
+  const processReturn = async () => {
+    setBusy(true);
+    setActionError(null);
+    const { error: rpcError } = await supabase.rpc('process_sale_return', {
+      p_sale_id: saleId,
+      p_status: returnStatus,
+      p_reason: returnReason.trim() || null,
+    });
+    setBusy(false);
+    if (rpcError) {
+      setActionError(rpcError.message);
+      return;
+    }
+    setShowReturn(false);
+    refetch();
   };
 
   const items = sale?.items ?? [];
@@ -163,8 +183,30 @@ export function SaleDetailModal({ saleId, onClose }: { saleId: string; onClose: 
             {sale.notes && <p className="pt-1 text-xs text-slate-500">Notes: {sale.notes}</p>}
           </div>
 
-          {actionError && <p className="text-sm text-rose-600">{actionError}</p>}
+          {actionError && <p role="alert" className="text-sm text-rose-600">{actionError}</p>}
+
+          {showReturn && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-3">
+              <p className="text-sm font-semibold text-amber-900">Process customer return</p>
+              <p className="text-xs text-amber-700">
+                This restocks every item (with a ledger entry) and releases its serial numbers. The sale is marked as returned/refunded. This cannot be undone automatically.
+              </p>
+              <div className="flex gap-4 text-sm">
+                <label className="flex items-center gap-1.5"><input type="radio" name="return-status" checked={returnStatus === 'returned'} onChange={() => setReturnStatus('returned')} className="accent-slate-900" /> Returned (restock only)</label>
+                <label className="flex items-center gap-1.5"><input type="radio" name="return-status" checked={returnStatus === 'refunded'} onChange={() => setReturnStatus('refunded')} className="accent-slate-900" /> Refunded (restock + money back)</label>
+              </div>
+              <input value={returnReason} onChange={(e) => setReturnReason(e.target.value)} placeholder="Reason (optional)" className="w-full px-3.5 py-2.5 text-sm border border-amber-300 rounded-lg outline-none focus:border-amber-600" />
+              <div className="flex gap-2 justify-end">
+                <Button variant="ghost" onClick={() => setShowReturn(false)} disabled={busy}>Cancel</Button>
+                <Button variant="danger" onClick={() => void processReturn()} disabled={busy}>{busy ? 'Processing...' : `Confirm ${returnStatus}`}</Button>
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-col sm:flex-row justify-end gap-3">
+            {sale.status === 'completed' && !showReturn && (
+              <Button variant="outline" onClick={() => setShowReturn(true)}>Return / Refund</Button>
+            )}
             <Button variant="outline" onClick={() => runReceipt('download')} disabled={busy}>
               {busy ? 'Preparing...' : 'Download PDF'}
             </Button>
