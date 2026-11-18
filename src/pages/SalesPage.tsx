@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { DollarSign, Plus, Minus, Receipt, Search, Trash2, Check, Printer } from 'lucide-react';
+import { DollarSign, Plus, Minus, Receipt, Search, Trash2, Check, Printer, Download } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { supabase, useSupabaseQuery } from '@/hooks/useSupabaseQuery';
 import { ErrorState, EmptyState, ListSkeleton } from '@/components/ui/States';
@@ -8,6 +8,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Input, Select, Textarea } from '@/components/ui/Form';
 import { Badge } from '@/components/ui/Badge';
 import { formatCurrency, formatDate } from '@/lib/dateUtils';
+import { downloadCsv, dateFileName } from '@/lib/exportCsv';
 import { hasRole, isAtLeast, fullAccessibleBranchIds } from '@/lib/rbac';
 import { formatUnitQuantity } from '@/lib/business';
 import { SALE_STATUS_LABELS, SALE_STATUS_STYLES } from '@/lib/statusStyles';
@@ -64,7 +65,17 @@ export function SalesPage() {
         <h2 className="text-lg font-semibold text-slate-900">Sales</h2>
         <p className="text-sm text-slate-500">Complete one transaction with one or more products.</p>
       </div>
-      <Button onClick={() => setShowModal(true)} className="w-full sm:w-auto"><Plus size={18} /> Record Sale</Button></div>
+      <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+        <Button variant="outline" onClick={() => downloadCsv(dateFileName('sales'), filtered, [
+          { header: 'Date', value: (s) => s.sale_date },
+          { header: 'Customer', value: (s) => s.customer_name ?? 'Walk-in' },
+          { header: 'Branch', value: (s) => s.branch?.name ?? '' },
+          { header: 'Items', value: (s) => s.items?.length ?? 0 },
+          { header: 'Total', value: (s) => Number(s.unit_price) * s.quantity - Number(s.discount_value) },
+          { header: 'Paid', value: (s) => s.amount_paid },
+          { header: 'Status', value: (s) => s.status },
+        ])}><Download size={17} /> Export</Button>
+        <Button onClick={() => setShowModal(true)} className="w-full sm:w-auto"><Plus size={18} /> Record Sale</Button></div></div>
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2"><Metric label="Completed sales" value={formatCurrency(completed)} /><Metric label="Transactions" value={String(filtered.length)} /></div>
     <div className="flex flex-col gap-3 sm:flex-row">
       <label className="relative flex-1">

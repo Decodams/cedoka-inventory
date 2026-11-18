@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Wallet, Plus, Search, CheckCircle, XCircle } from 'lucide-react';
+import { Wallet, Plus, Search, CheckCircle, XCircle, Download } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSupabaseQuery, supabase } from '@/hooks/useSupabaseQuery';
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States';
@@ -8,6 +8,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Input, Select, Textarea } from '@/components/ui/Form';
 import { Badge } from '@/components/ui/Badge';
 import { formatCurrency, formatDate } from '@/lib/dateUtils';
+import { downloadCsv, dateFileName } from '@/lib/exportCsv';
 import { isAtLeast, hasRole, accessibleBusinessIds, fullAccessibleBranchIds } from '@/lib/rbac';
 import { EXPENSE_STATUS_STYLES, EXPENSE_STATUS_LABELS } from '@/lib/statusStyles';
 import { logAudit } from '@/lib/audit';
@@ -68,7 +69,7 @@ export function ExpensesPage() {
           <h2 className="text-lg font-semibold text-slate-900">Operational Expenses</h2>
           <p className="text-sm text-slate-500 mt-0.5">Track logistics, repairs, petty cash, and other operational costs.</p>
         </div>
-        <Button onClick={()=>setShowModal(true)} className="w-full sm:w-auto"><Plus size={18}/>Record Expense</Button>
+        <div className="flex flex-wrap gap-2 w-full sm:w-auto"><Button variant="outline" onClick={() => downloadCsv(dateFileName('expenses'), filtered, [ { header: 'Date', value: (x) => x.expense_date }, { header: 'Category', value: (x) => x.category }, { header: 'Description', value: (x) => x.description }, { header: 'Amount', value: (x) => x.amount }, { header: 'Status', value: (x) => x.status } ])}><Download size={17} /> Export</Button><Button onClick={()=>setShowModal(true)} className="w-full sm:w-auto"><Plus size={18}/>Record Expense</Button></div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -187,4 +188,5 @@ function ExpenseModal({ branches, currentUser, onClose, onSaved }: { branches: B
     </Modal>
   );
 }
+
 

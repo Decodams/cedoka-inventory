@@ -24,6 +24,7 @@ import {
   MapPin,
   WifiOff,
   Truck,
+  Landmark,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { InstallAppButton } from '@/components/InstallAppButton';
@@ -45,6 +46,7 @@ export type PageKey =
   | 'procurement'
   | 'sales'
   | 'quotations'
+  | 'finance'
   | 'expenses'
   | 'issues'
   | 'activities'
@@ -76,6 +78,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'procurement', label: 'Procurement', icon: ShoppingCart, visible: (r) => r !== 'sales_person', section: 'operations' },
   { key: 'sales', label: 'Daily Sales', icon: DollarSign, visible: () => true, section: 'operations' },
   { key: 'quotations', label: 'Quotations', icon: FileSignature, visible: (r) => r === 'super_admin' || r === 'admin' || r === 'manager', section: 'operations' },
+  { key: 'finance', label: 'Finance', icon: Landmark, visible: (r) => r !== 'sales_person', section: 'operations' },
   { key: 'expenses', label: 'Expenses', icon: Wallet, visible: (r) => r !== 'sales_person', section: 'operations' },
   { key: 'issues', label: 'Issues & Challenges', icon: AlertTriangle, visible: () => true, section: 'operations' },
   { key: 'activities', label: 'Daily Activities', icon: CalendarDays, visible: () => true, section: 'operations' },

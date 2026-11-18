@@ -19,6 +19,7 @@ const TransfersPage = lazy(() => import('@/pages/TransfersPage').then(m => ({ de
 const ProcurementPage = lazy(() => import('@/pages/ProcurementPage').then(m => ({ default: m.ProcurementPage })));
 const SalesPage = lazy(() => import('@/pages/SalesPage').then(m => ({ default: m.SalesPage })));
 const QuotationsPage = lazy(() => import('@/pages/QuotationsPage').then(m => ({ default: m.QuotationsPage })));
+const FinancePage = lazy(() => import('@/pages/FinancePage').then(m => ({ default: m.FinancePage })));
 const ExpensesPage = lazy(() => import('@/pages/ExpensesPage').then(m => ({ default: m.ExpensesPage })));
 const AuditLogPage = lazy(() => import('@/pages/AuditLogPage').then(m => ({ default: m.AuditLogPage })));
 const DepartmentsPage = lazy(() => import('@/pages/DepartmentsPage').then(m => ({ default: m.DepartmentsPage })));
@@ -35,7 +36,7 @@ const PAGE_STORAGE_KEY = 'cedoka:page';
 const ALL_PAGES: PageKey[] = [
   'dashboard', 'businesses', 'users', 'reports', 'reconciliation', 'products',
   'inventory', 'issues', 'activities', 'transfers', 'procurement', 'sales',
-  'quotations',
+  'quotations', 'finance',
   'expenses', 'departments', 'teams', 'customers', 'services', 'suppliers', 'locations',
   'workflows', 'report-types', 'audit',
 ];
@@ -113,6 +114,8 @@ function AppContent() {
         return <SalesPage />;
       case 'quotations':
         return <QuotationsPage />;
+      case 'finance':
+        return <FinancePage />;
       case 'expenses':
         return <ExpensesPage />;
       case 'departments':
